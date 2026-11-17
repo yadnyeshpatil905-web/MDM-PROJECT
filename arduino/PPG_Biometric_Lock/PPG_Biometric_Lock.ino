@@ -340,19 +340,34 @@ void loop() {
   Serial.println(score);
 
   if (score >= MATCH_THRESHOLD) {
-    // Biometric Step 1 Passed: Display PIN required prompt & await backend authorization
+    // Biometric Factor 1 Passed: Display PIN required prompt & await web multi-authenticator PIN entry
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print(F("BIO VERIFIED"));
+    lcd.print(F("BIO VERIFIED 90s"));
     lcd.setCursor(0, 1);
     lcd.print(F("ENTER PIN ON WEB"));
     
     Serial.println(F("BIOMETRIC_STEP1_PASSED: AWAITING_PIN_CMD"));
+    tone(BUZZER_PIN, 1500, 150); // Informative audio chime for Factor 1 pass
     
-    // Listen for backend CMD:UNLOCK for up to 10 seconds before auto-cancelling
+    // Listen for backend CMD:UNLOCK for up to 90 seconds (matches website challenge TTL)
     unsigned long waitStart = millis();
     bool unlockedByHost = false;
-    while (millis() - waitStart < 10000UL) {
+    unsigned long lastRemainSec = 999;
+
+    while (millis() - waitStart < 90000UL) {
+      unsigned long elapsedSec = (millis() - waitStart) / 1000UL;
+      unsigned long remainSec = (elapsedSec >= 90) ? 0 : (90 - elapsedSec);
+
+      // Periodically refresh countdown on LCD
+      if (remainSec != lastRemainSec) {
+        lastRemainSec = remainSec;
+        lcd.setCursor(13, 0);
+        if (remainSec < 10) lcd.print(F(" "));
+        lcd.print(remainSec);
+        lcd.print(F("s"));
+      }
+
       if (Serial.available()) {
         String cmd = Serial.readStringUntil('\n');
         cmd.trim();
@@ -360,8 +375,10 @@ void loop() {
           grantAccess(score);
           unlockedByHost = true;
           break;
-        } else if (cmd == "CMD:LOCK" || cmd == "CMD:RESET") {
-          break;
+        } else if (cmd.equalsIgnoreCase("CMD:LOCK") || cmd.equalsIgnoreCase("RESET") || cmd.startsWith("ACCESS_DENIED")) {
+          denyAccess(F("PIN REJECTED"));
+          unlockedByHost = false;
+          return;
         }
       }
       delay(50);
@@ -930,29 +947,41 @@ void grantAccess(byte score) {
   lcd.print(F("ACCESS GRANTED"));
 
   lcd.setCursor(0, 1);
-  lcd.print(F("MATCH:"));
-  lcd.print(score);
-  lcd.print(F("%"));
+  lcd.print(F("VAULT UNLOCKED"));
 
   Serial.println(F("ACCESS GRANTED"));
+  Serial.println(F("ACK:UNLOCK:SUCCESS"));
 
   // Green/status LED
   digitalWrite(LED_PIN, HIGH);
 
   // Short confirmation beep
-  tone(BUZZER_PIN, 2000, 200);
+  tone(BUZZER_PIN, 2000, 250);
 
-  // Unlock servo
+  // Unlock servo deadbolt to 90 degrees
   lockServo.write(90);
 
-  delay(5000);
+  // Keep vault open for 8 seconds, or until web host sends CMD:LOCK
+  unsigned long unlockStart = millis();
+  while (millis() - unlockStart < 8000UL) {
+    if (Serial.available()) {
+      String cmd = Serial.readStringUntil('\n');
+      cmd.trim();
+      if (cmd.equalsIgnoreCase("CMD:LOCK") || cmd.equalsIgnoreCase("RESET")) {
+        break;
+      }
+    }
+    delay(50);
+  }
 
-  // Lock again
+  // Relock deadbolt
   lockServo.write(0);
 
   digitalWrite(LED_PIN, LOW);
 
   noTone(BUZZER_PIN);
+  
+  Serial.println(F("SYSTEM LOCKED"));
 }
 
 
