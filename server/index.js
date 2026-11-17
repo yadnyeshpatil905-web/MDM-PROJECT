@@ -72,7 +72,7 @@ io.on('connection', (socket) => {
 const isTest = process.env.NODE_ENV === 'test' || process.argv.some(a => a.includes('test'));
 
 if (!isTest) {
-  server.listen(PORT, () => {
+  server.listen(PORT, async () => {
     console.log(`===================================================`);
     console.log(`PPG Biometric Lock Backend running on port ${PORT}`);
     if (isSupabaseConfigured()) {
@@ -81,6 +81,7 @@ if (!isTest) {
       console.log(`Database: IN-MEMORY MODE (Set SUPABASE_URL & SUPABASE_SERVICE_ROLE_KEY in .env to connect Supabase)`);
     }
     console.log(`===================================================`);
+    await authService.ensureTeamMembersSeeded();
   });
 }
 

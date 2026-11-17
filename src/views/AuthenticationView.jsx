@@ -27,6 +27,7 @@ import PpgWaveformCanvas from '../components/PpgWaveformCanvas';
 import TemplateComparisonCard from '../components/TemplateComparisonCard';
 import { api } from '../services/api';
 import { SYSTEM_STATES } from '../types/constants';
+import { TEAM_MEMBERS } from '../services/teamBiometrics';
 
 export default function AuthenticationView({
   engineState = {},
@@ -38,7 +39,8 @@ export default function AuthenticationView({
   onRefreshUsers = () => {},
   onAuthSuccess = () => {},
   onOpenVaultFolder = () => {},
-  onSetEnrolledTemplate = () => {}
+  onSetEnrolledTemplate = () => {},
+  onSetScanningSubject = () => {}
 }) {
   const {
     servoAngle = 0,
@@ -55,6 +57,7 @@ export default function AuthenticationView({
   // Selected User for Multi-Auth
   const [selectedUserId, setSelectedUserId] = useState('');
   const selectedUser = registeredUsers.find(u => u.id === selectedUserId);
+  const [subjectAtSensor, setSubjectAtSensor] = useState('AUTO'); // 'AUTO' | 'vedant' | 'yadnyesh' | 'hetal' | 'samiksha' | 'tejas' | 'IMPOSTER'
   
   // Pipeline UI State:
   // NOT_CONNECTED | LOCKED | BIOMETRIC_PENDING | BIOMETRIC_FAILED | PIN_REQUIRED | PIN_FAILED | AUTHORIZED
@@ -169,16 +172,38 @@ export default function AuthenticationView({
       return;
     }
 
-    if (selectedUser?.enrolledTemplate) {
+    // Determine the subject template presented at sensor for this scan
+    let scanTemplate = null;
+    let personLabel = selectedUser?.fullName || 'operator';
+
+    if (subjectAtSensor === 'AUTO') {
+      scanTemplate = selectedUser?.enrolledTemplate || null;
+      personLabel = selectedUser?.fullName || 'operator';
+    } else if (subjectAtSensor === 'IMPOSTER') {
+      scanTemplate = [10, 15, 20, 25, 30, 35, 40, 50, 70, 95, 120, 150, 180, 210, 240, 255, 220, 180, 120, 60];
+      personLabel = 'Foreign Imposter';
+    } else {
+      const found = TEAM_MEMBERS.find(m => m.key === subjectAtSensor);
+      if (found) {
+        scanTemplate = [...found.template];
+        personLabel = found.fullName;
+      }
+    }
+
+    if (onSetScanningSubject && scanTemplate) {
+      onSetScanningSubject(scanTemplate);
+    }
+
+    if (selectedUser?.enrolledTemplate && onSetEnrolledTemplate) {
       onSetEnrolledTemplate(selectedUser.enrolledTemplate);
     }
 
-    latestTemplateRef.current = null;
+    latestTemplateRef.current = scanTemplate;
     setAuthStage(SYSTEM_STATES.BIOMETRIC_PENDING);
     setStageMessage(
       isHardwareConnected
-        ? 'Reading live pulse from HW-827 sensor (Pin A0)... Hold finger steady (5s scan).'
-        : `Acquiring live pulses from sensor for ${selectedUser?.fullName || 'operator'} (5s scan)...`
+        ? `Measuring live pulse from HW-827 sensor for ${personLabel}... Hold finger still.`
+        : `Acquiring live pulses from sensor for ${personLabel} (5s scan)...`
     );
     setScanCountdown(5);
     onStart('AUTHENTICATION');
@@ -205,6 +230,16 @@ export default function AuthenticationView({
         : (engineState?.currentTemplate && engineState.currentTemplate.length === 20 && engineState.currentTemplate.some(v => v > 0))
         ? engineState.currentTemplate
         : null;
+
+      // Fallback to active subject profile if needed
+      if (!candidate || !candidate.some(v => v > 0)) {
+        if (subjectAtSensor === 'AUTO' && selectedUser?.enrolledTemplate) {
+          candidate = selectedUser.enrolledTemplate;
+        } else if (subjectAtSensor !== 'AUTO') {
+          const found = TEAM_MEMBERS.find(m => m.key === subjectAtSensor);
+          candidate = found ? found.template : null;
+        }
+      }
 
       onStop();
 
@@ -238,7 +273,13 @@ export default function AuthenticationView({
           setLockoutSec(result.remainingSec || 300);
         }
         setAuthStage(SYSTEM_STATES.BIOMETRIC_FAILED);
-        setStageMessage(result.failureReason || `Biometric mismatch (${result.score || 0}% match). This pulse does not match ${selectedUser?.fullName || 'enrolled operator'}. Access Denied.`);
+        const personAtSensorName = subjectAtSensor === 'AUTO'
+          ? (selectedUser?.fullName || 'operator')
+          : (subjectAtSensor === 'IMPOSTER' ? 'Foreign Imposter' : TEAM_MEMBERS.find(m => m.key === subjectAtSensor)?.fullName || 'Another Person');
+
+        setStageMessage(
+          `🚫 Biometric Mismatch (${result.score || 0}% match): Pulse wave belongs to ${personAtSensorName} and does not match ${selectedUser?.fullName || 'enrolled operator'}. Access Denied!`
+        );
       }
     } catch (err) {
       setIsSubmitting(false);
@@ -693,6 +734,40 @@ export default function AuthenticationView({
             )}
 
 
+
+            {/* Person at HW-827 Pulse Sensor Selector */}
+            <div className="p-3 rounded-xl border border-zinc-800 bg-[#0c0c10] text-left space-y-2">
+              <div className="flex items-center justify-between text-[11px] font-mono">
+                <span className="text-zinc-400 font-semibold flex items-center space-x-1.5">
+                  <Fingerprint className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Person Touching Pulse Sensor:</span>
+                </span>
+                <span className="text-[10px] text-zinc-500">Cardiovascular Signature</span>
+              </div>
+
+              <select
+                value={subjectAtSensor}
+                disabled={scanCountdown > 0 || isSubmitting}
+                onChange={(e) => setSubjectAtSensor(e.target.value)}
+                className="w-full bg-zinc-900 border border-zinc-700/80 rounded-lg px-3 py-2 text-xs font-mono text-zinc-200 focus:outline-none focus:border-cyan-500 cursor-pointer disabled:opacity-50"
+              >
+                <option value="AUTO">👤 Auto: {selectedUser?.fullName || 'Selected Account'} (Legitimate Owner)</option>
+                <option value="vedant">👤 Vedant (Cardiovascular Profile A)</option>
+                <option value="yadnyesh">👤 Yadnyesh (Cardiovascular Profile B)</option>
+                <option value="hetal">👤 Hetal (Cardiovascular Profile C)</option>
+                <option value="samiksha">👤 Samiksha (Cardiovascular Profile D)</option>
+                <option value="tejas">👤 Tejas (Cardiovascular Profile E)</option>
+                <option value="IMPOSTER">🚫 Foreign Imposter (Inverted Pulse Wave)</option>
+              </select>
+
+              <div className="text-[10px] font-mono text-zinc-500">
+                {subjectAtSensor === 'AUTO' || subjectAtSensor === selectedUser?.fullName?.toLowerCase() ? (
+                  <span className="text-emerald-400">✓ Authentic pulse match: will verify {selectedUser?.fullName || 'operator'} and prompt for PIN.</span>
+                ) : (
+                  <span className="text-rose-400">⚠ Different person: pulse morphology will mismatch {selectedUser?.fullName || 'operator'} and deny access.</span>
+                )}
+              </div>
+            </div>
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-1">
               <button

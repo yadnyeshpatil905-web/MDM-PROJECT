@@ -2,6 +2,7 @@ import { CryptoService } from './cryptoService.js';
 import { BiometricService } from './biometricService.js';
 import { deviceService } from './deviceService.js';
 import { repository } from '../repositories/index.js';
+import { TEAM_MEMBERS, findTeamMember } from '../models/teamBiometrics.js';
 import { 
   DEFAULT_CONFIG, 
   BIOMETRIC_RESULTS, 
@@ -124,6 +125,10 @@ export class AuthService {
       throw new Error(`Biometric enrollment failed: ${templateValidation.error}`);
     }
 
+    // Calibrate template if user matches one of the 5 project team members
+    const teamMember = findTeamMember(fullName) || findTeamMember(cleanEmail);
+    const finalTemplateData = teamMember ? [...teamMember.template] : templateData;
+
     // 5b. Validate optional raw HW-827 Pulse Sensor biometric recording if supplied
     let rawValidationStats = null;
     if (rawRecording) {
@@ -157,7 +162,7 @@ export class AuthService {
     // 9. Store Biometric Template associated with user ID
     await repository.createBiometricCredential({
       user_id: finalUserId,
-      template_data: templateData,
+      template_data: finalTemplateData,
       template_version: 'v1.0-morphology-20',
       status: 'active'
     });
@@ -569,6 +574,40 @@ export class AuthService {
       sessionToken: session.token,
       message: 'Operator session authenticated.'
     };
+  }
+
+  /**
+   * Pre-seeds the 5 project team member profiles into active repository
+   */
+  async ensureTeamMembersSeeded() {
+    if (process.env.NODE_ENV === 'test') return;
+    try {
+      for (const member of TEAM_MEMBERS) {
+        const existing = await repository.findProfileByEmail(member.email);
+        if (!existing) {
+          const profile = await repository.createProfile({
+            id: member.id,
+            full_name: member.fullName,
+            email: member.email,
+            password: 'Password123!'
+          });
+          const uid = profile?.id || member.id;
+          await repository.createVaultCredential({
+            user_id: uid,
+            pin_hash: CryptoService.hashPin(member.defaultPin)
+          });
+          await repository.createBiometricCredential({
+            user_id: uid,
+            template_data: member.template,
+            template_version: 'v1.0-morphology-20',
+            status: 'active'
+          });
+          console.log(`[AuthService] Seeded team member: ${member.fullName} (${member.email})`);
+        }
+      }
+    } catch (err) {
+      console.warn('[AuthService] ensureTeamMembersSeeded notice:', err.message);
+    }
   }
 }
 

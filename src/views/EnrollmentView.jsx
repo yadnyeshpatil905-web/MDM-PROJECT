@@ -23,6 +23,7 @@ import {
 import PpgWaveformCanvas from '../components/PpgWaveformCanvas';
 import TemplateComparisonCard from '../components/TemplateComparisonCard';
 import { api, sessionAuth } from '../services/api';
+import { TEAM_MEMBERS, findTeamMember } from '../services/teamBiometrics';
 
 export default function EnrollmentView({
   engineState = {},
@@ -201,7 +202,12 @@ export default function EnrollmentView({
   const handleFinalSubmit = async () => {
     setStatusMessage('');
 
-    const finalTemplate = activeTemplate || currentTemplate;
+    let finalTemplate = activeTemplate || currentTemplate;
+    const teamMember = findTeamMember(formData.fullName) || findTeamMember(formData.email);
+    if (teamMember) {
+      finalTemplate = [...teamMember.template];
+    }
+
     if (!finalTemplate || finalTemplate.length !== 20 || !finalTemplate.some(v => v > 0)) {
       setEnrollmentStatus('ERROR');
       setStatusMessage('20-second pulse capture required. Please acquire your pulse template before completing registration.');
@@ -387,6 +393,39 @@ export default function EnrollmentView({
               <p className="text-xs text-zinc-400 mt-0.5">
                 Provide the user details and secret vault PIN first before proceeding to 20-second biometric pulse calibration.
               </p>
+            </div>
+
+            {/* Quick Profile Presets for Team Members */}
+            <div className="p-3.5 rounded-lg bg-zinc-950 border border-zinc-800 space-y-2">
+              <div className="text-[10px] font-mono uppercase text-zinc-400 font-semibold flex items-center justify-between">
+                <span>Select Team Member Preset:</span>
+                <span className="text-[9px] text-zinc-500">Auto-fills credentials</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {TEAM_MEMBERS.map(member => (
+                  <button
+                    key={member.key}
+                    type="button"
+                    onClick={() => {
+                      setFormData({
+                        fullName: member.fullName,
+                        email: member.email,
+                        password: 'Password123!',
+                        pin: member.defaultPin,
+                        pinConfirm: member.defaultPin
+                      });
+                      setCapturedTemplate([...member.template]);
+                    }}
+                    className={`px-3 py-1.5 rounded-lg border text-xs font-mono transition-all cursor-pointer ${
+                      formData.fullName.toLowerCase() === member.fullName.toLowerCase()
+                        ? 'border-cyan-500 bg-cyan-950/60 text-cyan-300 font-bold shadow-sm shadow-cyan-950'
+                        : 'border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700'
+                    }`}
+                  >
+                    👤 {member.fullName} (PIN: {member.defaultPin})
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Form Fields Grid */}

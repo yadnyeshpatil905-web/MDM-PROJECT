@@ -1,4 +1,5 @@
 import { CryptoService } from '../services/cryptoService.js';
+import { TEAM_MEMBERS } from '../models/teamBiometrics.js';
 import { 
   IProfileRepository, 
   IBiometricRepository, 
@@ -31,9 +32,36 @@ export class InMemoryRepositoryManager {
   }
 
   seedDefaultData() {
-    // Seed initial demo profile: Alex Morgan
-    const demoUserId = 'a0000000-0000-0000-0000-000000000001';
     const now = new Date().toISOString();
+
+    // Seed the 5 Project Team Members (Vedant, Yadnyesh, Hetal, Samiksha, Tejas)
+    TEAM_MEMBERS.forEach((member, idx) => {
+      this.profiles.set(member.id, {
+        id: member.id,
+        full_name: member.fullName,
+        email: member.email,
+        created_at: new Date(Date.now() - (idx * 60000)).toISOString()
+      });
+
+      const bioId = `b${member.id.substring(1)}`;
+      this.biometricCredentials.set(bioId, {
+        id: bioId,
+        user_id: member.id,
+        template_data: [...member.template],
+        template_version: 'v1.0-morphology-20',
+        enrolled_at: now,
+        status: CREDENTIAL_STATUS.ACTIVE
+      });
+
+      this.vaultCredentials.set(member.id, {
+        user_id: member.id,
+        pin_hash: CryptoService.hashPin(member.defaultPin),
+        updated_at: now
+      });
+    });
+
+    // Seed initial demo profile: Alex Morgan (legacy compatibility)
+    const demoUserId = 'a0000000-0000-0000-0000-000000000001';
 
     this.profiles.set(demoUserId, {
       id: demoUserId,

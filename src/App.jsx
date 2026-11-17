@@ -76,6 +76,12 @@ export default function App() {
     }
   };
 
+  const handleSetScanningSubject = (template) => {
+    if (simulatorRef.current) {
+      simulatorRef.current.setScanningSubject(template);
+    }
+  };
+
   // Fetch registered users from backend on load
   const loadRegisteredUsers = async () => {
     try {
@@ -446,6 +452,7 @@ export default function App() {
               onAuthSuccess={handleAuthSuccess}
               onOpenVaultFolder={() => setActiveTab('vault')}
               onSetEnrolledTemplate={handleSetEnrolledTemplate}
+              onSetScanningSubject={handleSetScanningSubject}
             />
           )}
 

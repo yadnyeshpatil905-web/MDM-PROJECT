@@ -84,6 +84,14 @@ export class PpgSimulator {
     }
   }
 
+  setScanningSubject(template) {
+    if (template && template.length === WAVE_POINTS) {
+      this.scanningTemplate = [...template];
+    } else {
+      this.scanningTemplate = null;
+    }
+  }
+
   startProcess() {
     if (this.isRunning) return;
     this.isRunning = true;
@@ -235,9 +243,11 @@ export class PpgSimulator {
   addBeatToTemplate() {
     if (this.templateBeats >= 5) return;
     
+    const baseTemplate = this.scanningTemplate || this.enrolledTemplate;
+
     // Synthesize the 20-point normalized waveform for this beat
     for (let i = 0; i < WAVE_POINTS; i++) {
-      let val = this.enrolledTemplate[i];
+      let val = baseTemplate[i];
       if (this.targetResult === 'FAIL_MISMATCH') {
         // Generate completely different biometric morphology
         val = Math.round(255 * (1 - Math.sin((i / WAVE_POINTS) * Math.PI * 2)));
@@ -253,7 +263,7 @@ export class PpgSimulator {
     // Continuously compute currentTemplate on each beat so candidate template is available immediately
     const beatsCount = Math.max(1, this.templateBeats);
     for (let i = 0; i < WAVE_POINTS; i++) {
-      const acc = this.accumulator[i] > 0 ? this.accumulator[i] : (this.enrolledTemplate[i] * beatsCount);
+      const acc = this.accumulator[i] > 0 ? this.accumulator[i] : (baseTemplate[i] * beatsCount);
       this.currentTemplate[i] = Math.max(10, Math.min(255, Math.round(acc / beatsCount)));
     }
   }
@@ -279,9 +289,10 @@ export class PpgSimulator {
     };
 
     // Calculate final 20-point morphology template
+    const baseTemplate = this.scanningTemplate || this.enrolledTemplate;
     const beatsCount = Math.max(1, this.templateBeats);
     for (let i = 0; i < WAVE_POINTS; i++) {
-      const acc = this.accumulator[i] > 0 ? this.accumulator[i] : (this.enrolledTemplate[i] * beatsCount);
+      const acc = this.accumulator[i] > 0 ? this.accumulator[i] : (baseTemplate[i] * beatsCount);
       this.currentTemplate[i] = Math.max(10, Math.min(255, Math.round(acc / beatsCount)));
     }
 
