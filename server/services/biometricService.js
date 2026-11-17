@@ -54,18 +54,59 @@ export class BiometricService {
     const valEnr = this.validateTemplate(enrolledTemplate);
     if (!valEnr.valid) throw new Error(`Invalid enrolled template: ${valEnr.error}`);
 
+    const N = DEFAULT_CONFIG.WAVE_POINTS;
     let difference = 0;
-    for (let i = 0; i < DEFAULT_CONFIG.WAVE_POINTS; i++) {
+    let meanC = 0;
+    let meanE = 0;
+    let maxIdxC = 0;
+    let maxIdxE = 0;
+
+    for (let i = 0; i < N; i++) {
       difference += Math.abs(currentTemplate[i] - enrolledTemplate[i]);
+      meanC += currentTemplate[i];
+      meanE += enrolledTemplate[i];
+      if (currentTemplate[i] > currentTemplate[maxIdxC]) maxIdxC = i;
+      if (enrolledTemplate[i] > enrolledTemplate[maxIdxE]) maxIdxE = i;
     }
 
-    const maximum = 255 * DEFAULT_CONFIG.WAVE_POINTS; // 5100
-    const score = Math.max(0, Math.min(100, Math.round(100 - (difference * 100) / maximum)));
+    meanC /= N;
+    meanE /= N;
+
+    // Pearson Cross-Correlation Coefficient of morphology
+    let num = 0;
+    let denC = 0;
+    let denE = 0;
+    for (let i = 0; i < N; i++) {
+      const dc = currentTemplate[i] - meanC;
+      const de = enrolledTemplate[i] - meanE;
+      num += dc * de;
+      denC += dc * dc;
+      denE += de * de;
+    }
+
+    const r = (denC > 0 && denE > 0) ? (num / Math.sqrt(denC * denE)) : 0;
+    const pearsonScore = Math.max(0, Math.min(100, Math.round(r * 100)));
+
+    // Peak latency alignment penalty (8% penalty per shifted index)
+    const peakDiff = Math.abs(maxIdxC - maxIdxE);
+    const peakPenalty = peakDiff * 8;
+
+    // Calculate discriminant score
+    let score;
+    if (difference === 0) {
+      score = 100;
+    } else {
+      score = Math.max(0, Math.min(100, Math.round(pearsonScore - peakPenalty)));
+    }
+
+    const maximum = 255 * N;
 
     return {
       score,
       difference,
       maxDifference: maximum,
+      pearsonCorrelation: parseFloat(r.toFixed(3)),
+      peakOffset: peakDiff,
       matched: score >= DEFAULT_CONFIG.MATCH_THRESHOLD
     };
   }

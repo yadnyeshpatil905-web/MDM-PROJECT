@@ -781,28 +781,40 @@ void finishTemplate() {
 
 
 // ========================================================
-// COMPARE PPG TEMPLATES
+// COMPARE PPG TEMPLATES (ENHANCED MORPHOLOGICAL DISCRIMINATOR)
 // ========================================================
 byte compareTemplates() {
-
   unsigned long difference = 0;
+  byte maxIdxCurr = 0;
+  byte maxIdxEnr = 0;
+  byte maxValCurr = 0;
+  byte maxValEnr = 0;
 
   for (byte i = 0; i < WAVE_POINTS; i++) {
-
-    int d =
-      abs((int)current[i] -
-          (int)enrolled[i]);
-
+    int d = abs((int)current[i] - (int)enrolled[i]);
     difference += d;
+
+    // Track peak systolic contraction positions
+    if (current[i] > maxValCurr) {
+      maxValCurr = current[i];
+      maxIdxCurr = i;
+    }
+    if (enrolled[i] > maxValEnr) {
+      maxValEnr = enrolled[i];
+      maxIdxEnr = i;
+    }
   }
 
-  unsigned long maximum =
-    255UL * WAVE_POINTS;
+  // Tighter scale discriminator (2000 vs 5100) so different human pulse shapes fail
+  long rawScore = 100L - ((difference * 100L) / 2000L);
+  if (rawScore < 0) rawScore = 0;
 
-  byte score =
-    100 - ((difference * 100UL) / maximum);
+  // Peak systolic latency penalty: 8% deduction per index shift between users
+  byte peakOffset = abs((int)maxIdxCurr - (int)maxIdxEnr);
+  int finalScore = rawScore - (peakOffset * 8);
 
-  return score;
+  if (difference == 0) return 100;
+  return (byte)constrain(finalScore, 0, 100);
 }
 
 
