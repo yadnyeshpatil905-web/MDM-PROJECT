@@ -115,6 +115,17 @@ export const api = {
     body: JSON.stringify({ userId })
   }),
 
+  // Vault Files & Folder Management
+  getVaultFiles: () => request('/api/vault/files'),
+  getVaultFileById: (id) => request(`/api/vault/files/${id}`),
+  createVaultFile: (payload) => request('/api/vault/files', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+  deleteVaultFile: (id) => request(`/api/vault/files/${id}`, {
+    method: 'DELETE'
+  }),
+
   // Audit Logs & Devices
   getHistory: () => request('/api/history'),
   getDevices: () => request('/api/devices'),

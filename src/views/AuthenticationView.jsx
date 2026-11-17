@@ -9,13 +9,18 @@ import {
   ShieldCheck, 
   AlertCircle, 
   Play, 
-  Square,
-  CheckCircle2,
-  Clock,
-  UserCheck,
-  RefreshCw,
-  XCircle,
-  Timer
+  Square, 
+  CheckCircle2, 
+  Clock, 
+  UserCheck, 
+  RefreshCw, 
+  XCircle, 
+  Timer,
+  FolderLock,
+  FolderOpen,
+  ArrowRight,
+  Usb,
+  Key
 } from 'lucide-react';
 import PpgWaveformCanvas from '../components/PpgWaveformCanvas';
 import TemplateComparisonCard from '../components/TemplateComparisonCard';
@@ -30,7 +35,8 @@ export default function AuthenticationView({
   onStop = () => {},
   registeredUsers = [],
   onRefreshUsers = () => {},
-  onAuthSuccess = () => {}
+  onAuthSuccess = () => {},
+  onOpenVaultFolder = () => {}
 }) {
   const {
     servoAngle = 0,
@@ -44,16 +50,16 @@ export default function AuthenticationView({
     matchScore = 0
   } = engineState;
 
-  // Selected User for Two-Step Auth
+  // Selected User for Multi-Auth
   const [selectedUserId, setSelectedUserId] = useState('');
   
   // Pipeline UI State:
   // NOT_CONNECTED | LOCKED | BIOMETRIC_PENDING | BIOMETRIC_FAILED | PIN_REQUIRED | PIN_FAILED | AUTHORIZED
   const [authStage, setAuthStage] = useState(SYSTEM_STATES.LOCKED);
-  const [stageMessage, setStageMessage] = useState('Select operator account to begin authentication.');
+  const [stageMessage, setStageMessage] = useState('Select operator account and scan fingerprint to begin.');
   
   // Step 2 Challenge state from Backend
-  const [challengeData, setChallengeData] = useState(null); // { challengeId, expiresInSec, expiresAt }
+  const [challengeData, setChallengeData] = useState(null); // { challengeId, expiresInSec }
   const [challengeCountdown, setChallengeCountdown] = useState(0);
   
   // Entered PIN state
@@ -76,9 +82,8 @@ export default function AuthenticationView({
         setChallengeCountdown(prev => {
           if (prev <= 1) {
             clearInterval(timer);
-            // Challenge expired!
             setAuthStage(SYSTEM_STATES.BIOMETRIC_FAILED);
-            setStageMessage('Biometric challenge expired (90s window elapsed). Please scan again.');
+            setStageMessage('Biometric challenge session expired (90s window). Please rescan fingerprint.');
             setChallengeData(null);
             setEnteredPin('');
             return 0;
@@ -97,7 +102,7 @@ export default function AuthenticationView({
         setLockoutSec(prev => {
           if (prev <= 1) {
             clearInterval(timer);
-            setStageMessage('Lockout duration ended. You may now retry biometric scan.');
+            setStageMessage('Lockout duration ended. You may now retry authentication.');
             setAuthStage(SYSTEM_STATES.LOCKED);
             return 0;
           }
@@ -108,8 +113,7 @@ export default function AuthenticationView({
     }
   }, [lockoutSec]);
 
-  // When physical scan finishes or returns a template:
-  // Step 1: Backend Biometric Verification
+  // Factor 1: Biometric Fingerprint Verification
   const handleVerifyBiometric = async () => {
     if (!selectedUserId) {
       setStageMessage('Please select a registered account first.');
@@ -122,53 +126,55 @@ export default function AuthenticationView({
     }
 
     setAuthStage(SYSTEM_STATES.BIOMETRIC_PENDING);
-    setStageMessage('Verifying pulse morphology against account enrolled template...');
+    setStageMessage('Acquiring fingerprint pulse morphology and verifying cross-correlation...');
     setIsSubmitting(true);
+    onStart();
 
-    try {
-      // Use current live template from sensor or simulator
-      const sample = (currentTemplate && currentTemplate.length === 20 && currentTemplate.some(v => v > 0))
-        ? currentTemplate
-        : enrolledTemplate; // fallback if simulated
+    // Allow sensor or simulator a brief moment to stabilize and capture clean pulse
+    setTimeout(async () => {
+      try {
+        const sample = (currentTemplate && currentTemplate.length === 20 && currentTemplate.some(v => v > 0))
+          ? currentTemplate
+          : enrolledTemplate;
 
-      const result = await api.verifyBiometric({
-        userId: selectedUserId,
-        sampleTemplate: sample,
-        isHardwareSample: isHardwareConnected
-      });
-
-      setIsSubmitting(false);
-
-      if (result.success) {
-        // Step 1 Passed! Challenge created. Transition to Step 2 PIN
-        setChallengeData({
-          challengeId: result.challengeId,
-          expiresInSec: result.expiresInSec
+        const result = await api.verifyBiometric({
+          userId: selectedUserId,
+          sampleTemplate: sample,
+          isHardwareSample: isHardwareConnected
         });
-        setChallengeCountdown(result.expiresInSec || 90);
-        setAuthStage(SYSTEM_STATES.PIN_REQUIRED);
-        setStageMessage(`Biometric match verified (${result.score}% >= ${result.threshold}%). Enter Vault PIN to unlock.`);
-        setEnteredPin('');
-      } else {
-        // Biometric Denied
-        if (result.lockedOut) {
-          setLockoutSec(result.remainingSec || 300);
+
+        setIsSubmitting(false);
+
+        if (result.success) {
+          // Factor 1 Passed! Challenge created. Transition to Factor 2 PIN
+          setChallengeData({
+            challengeId: result.challengeId,
+            expiresInSec: result.expiresInSec
+          });
+          setChallengeCountdown(result.expiresInSec || 90);
+          setAuthStage(SYSTEM_STATES.PIN_REQUIRED);
+          setStageMessage(`Factor 1 Verified (${result.score}% match). Now enter your secret Vault PIN to unlock.`);
+          setEnteredPin('');
+        } else {
+          if (result.lockedOut) {
+            setLockoutSec(result.remainingSec || 300);
+          }
+          setAuthStage(SYSTEM_STATES.BIOMETRIC_FAILED);
+          setStageMessage(result.failureReason || 'Biometric verification failed.');
         }
+      } catch (err) {
+        setIsSubmitting(false);
         setAuthStage(SYSTEM_STATES.BIOMETRIC_FAILED);
-        setStageMessage(result.failureReason || 'Biometric verification failed.');
+        setStageMessage(err.message || 'Error communicating with verification service.');
       }
-    } catch (err) {
-      setIsSubmitting(false);
-      setAuthStage(SYSTEM_STATES.BIOMETRIC_FAILED);
-      setStageMessage(err.message || 'Error communicating with backend verification service.');
-    }
+    }, 1200);
   };
 
-  // Step 2: Backend PIN Verification
+  // Factor 2: Backend PIN Verification
   const handleVerifyPin = async (e) => {
     if (e) e.preventDefault();
     if (!challengeData || !challengeData.challengeId) {
-      setStageMessage('No active biometric challenge found. Please complete Step 1 first.');
+      setStageMessage('No active biometric challenge found. Please complete Factor 1 fingerprint scan first.');
       setAuthStage(SYSTEM_STATES.LOCKED);
       return;
     }
@@ -179,7 +185,7 @@ export default function AuthenticationView({
     }
 
     setIsSubmitting(true);
-    setStageMessage('Verifying salted PIN hash on trusted backend...');
+    setStageMessage('Verifying salted PIN hash on backend...');
 
     try {
       const result = await api.verifyPin({
@@ -190,12 +196,13 @@ export default function AuthenticationView({
       setIsSubmitting(false);
 
       if (result.success) {
-        // Both Biometric AND PIN verified! Vault Authorized
+        // Both Biometric AND PIN verified! Vault Authorized!
         setAuthStage(SYSTEM_STATES.AUTHORIZED);
-        setStageMessage(`Access Granted! Vault deadbolt unlocked (Servo 90Â°). Auto-relock in ${result.autoLockInSeconds || 5}s.`);
+        setStageMessage(`Access Granted! Multi-authenticator verified. Deadbolt retracted (Servo 90°).`);
         setChallengeData(null);
         setEnteredPin('');
-        onAuthSuccess();
+        const currentUser = registeredUsers.find(u => u.id === selectedUserId);
+        onAuthSuccess(currentUser, result);
       }
     } catch (err) {
       setIsSubmitting(false);
@@ -231,23 +238,23 @@ export default function AuthenticationView({
   const selectedUser = registeredUsers.find(u => u.id === selectedUserId);
 
   const pipelineStages = [
-    { id: SYSTEM_STATES.LOCKED, label: '1. Account Identity', desc: 'Select registered user' },
-    { id: SYSTEM_STATES.BIOMETRIC_PENDING, label: '2. Live Biometric', desc: 'Optical PPG correlation' },
-    { id: SYSTEM_STATES.PIN_REQUIRED, label: '3. Vault PIN Screen', desc: 'Salted Scrypt verification' },
-    { id: SYSTEM_STATES.AUTHORIZED, label: '4. Vault Open', desc: 'Servo unlocked 90Â°' }
+    { id: SYSTEM_STATES.LOCKED, label: '1. Select Account', desc: 'Identity profile' },
+    { id: SYSTEM_STATES.BIOMETRIC_PENDING, label: '2. Fingerprint Scan', desc: 'PPG pulse correlation' },
+    { id: SYSTEM_STATES.PIN_REQUIRED, label: '3. Enter Vault PIN', desc: 'Salted Scrypt verification' },
+    { id: SYSTEM_STATES.AUTHORIZED, label: '4. Open Vault / Folder', desc: 'Confidential access' }
   ];
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
       
       {/* 4-Stage Authentication Pipeline Tracker */}
-      <div className="pro-card p-4 border border-zinc-800 bg-[#101014]">
+      <div className="pro-card p-4 border border-zinc-800 bg-[#101014] rounded-xl">
         <div className="flex items-center justify-between mb-3">
           <div className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider font-semibold">
-            Two-Step Vault Authentication Architecture
+            Multi-Authenticator 2FA Architecture
           </div>
-          <span className="text-[10px] font-mono text-zinc-400 bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800">
-            Biometric Alone Never Opens Vault
+          <span className="text-[10px] font-mono text-cyan-400 bg-cyan-950/80 px-2 py-0.5 rounded border border-cyan-800/80">
+            Fingerprint + PIN Required to Open Vault
           </span>
         </div>
 
@@ -260,34 +267,29 @@ export default function AuthenticationView({
               (stage.id === SYSTEM_STATES.AUTHORIZED && authStage === SYSTEM_STATES.AUTHORIZED);
 
             const isPassed = 
-              (idx === 0 && authStage !== SYSTEM_STATES.LOCKED) ||
-              (idx === 1 && (authStage === SYSTEM_STATES.PIN_REQUIRED || authStage === SYSTEM_STATES.PIN_FAILED || authStage === SYSTEM_STATES.AUTHORIZED)) ||
+              (idx === 0 && authStage !== SYSTEM_STATES.LOCKED && authStage !== SYSTEM_STATES.NOT_CONNECTED) ||
+              (idx === 1 && (authStage === SYSTEM_STATES.PIN_REQUIRED || authStage === SYSTEM_STATES.AUTHORIZED)) ||
               (idx === 2 && authStage === SYSTEM_STATES.AUTHORIZED);
 
             return (
-              <div 
+              <div
                 key={stage.id}
-                className={`p-3 rounded-lg border transition-all ${
-                  isCurrent 
-                    ? 'bg-zinc-800 border-cyan-500/80 text-white shadow-sm' 
+                className={`p-3 rounded-lg border text-left transition-all ${
+                  isCurrent
+                    ? 'border-cyan-500/80 bg-cyan-950/30 text-white shadow-sm'
                     : isPassed
-                    ? 'bg-[#0d0d10] border-emerald-900/60 text-zinc-300'
-                    : 'bg-[#0a0a0c] border-zinc-900 text-zinc-600'
+                    ? 'border-emerald-800/60 bg-emerald-950/20 text-zinc-300'
+                    : 'border-zinc-800/60 bg-zinc-950/40 text-zinc-500'
                 }`}
               >
-                <div className="flex items-center space-x-1.5 text-xs font-semibold">
-                  {isPassed ? (
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                  ) : isCurrent ? (
-                    <span className="w-2 h-2 rounded-full bg-cyan-400 shrink-0" />
-                  ) : (
-                    <span className="w-2 h-2 rounded-full bg-zinc-700 shrink-0" />
-                  )}
-                  <span className="truncate">{stage.label}</span>
+                <div className="flex items-center justify-between text-[10px] font-mono mb-1">
+                  <span className={isCurrent ? 'text-cyan-400 font-bold' : isPassed ? 'text-emerald-400' : 'text-zinc-600'}>
+                    {isPassed ? '✓ PASSED' : `STAGE 0${idx + 1}`}
+                  </span>
+                  {isCurrent && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />}
                 </div>
-                <div className="text-[10px] font-mono text-zinc-500 mt-1 truncate">
-                  {stage.desc}
-                </div>
+                <div className="text-xs font-semibold leading-tight">{stage.label}</div>
+                <div className="text-[10px] font-mono text-zinc-500 mt-0.5">{stage.desc}</div>
               </div>
             );
           })}
@@ -295,36 +297,36 @@ export default function AuthenticationView({
       </div>
 
       {/* Main Authentication Card */}
-      <div className="pro-card p-6 border border-zinc-800 bg-[#101014] space-y-6">
+      <div className="pro-card p-6 border border-zinc-800 bg-[#0e0e12] rounded-xl space-y-6">
         
-        {/* Step 1: User Selection Header */}
-        <div className="flex flex-col md:flex-row items-center justify-between gap-4 pb-5 border-b border-zinc-800/80">
-          <div className="flex items-center space-x-3 w-full md:w-auto">
-            <div className="w-10 h-10 rounded-lg bg-zinc-900 border border-zinc-700 flex items-center justify-center text-zinc-200">
-              <UserCheck className="w-5 h-5 text-cyan-400" />
+        {/* Account Selector */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-800/80 pb-4">
+          <div>
+            <div className="text-xs font-mono uppercase font-semibold text-zinc-400">
+              Target Operator Account
             </div>
-            <div>
-              <div className="text-[10px] font-mono uppercase text-zinc-500">Step 1: Account Selection</div>
-              <h3 className="font-semibold text-sm text-white">Target Registered Identity</h3>
+            <div className="text-xs text-zinc-500 mt-0.5">
+              Select the registered user whose enrolled fingerprint and PIN will unlock the vault.
             </div>
           </div>
 
-          <div className="flex items-center space-x-3 w-full md:w-auto">
+          <div className="flex items-center space-x-2">
             <select
               value={selectedUserId}
+              disabled={authStage === SYSTEM_STATES.PIN_REQUIRED || isRunning}
               onChange={(e) => {
                 setSelectedUserId(e.target.value);
                 setAuthStage(SYSTEM_STATES.LOCKED);
+                setStageMessage('Operator changed. Place finger on sensor to begin.');
                 setChallengeData(null);
                 setEnteredPin('');
               }}
-              disabled={authStage === SYSTEM_STATES.PIN_REQUIRED || authStage === SYSTEM_STATES.AUTHORIZED}
-              className="bg-[#0a0a0c] border border-zinc-700 rounded-lg px-3.5 py-2 text-xs font-mono text-white focus:outline-none focus:border-cyan-500 flex-1 md:w-64"
+              className="bg-zinc-900 border border-zinc-700/80 rounded-lg px-3 py-2 text-xs font-mono text-zinc-200 focus:outline-none focus:border-cyan-500 disabled:opacity-50"
             >
               {registeredUsers.length > 0 ? (
-                registeredUsers.map(user => (
-                  <option key={user.id} value={user.id}>
-                    {user.fullName} ({user.email})
+                registeredUsers.map(u => (
+                  <option key={u.id} value={u.id}>
+                    {u.fullName} ({u.isPinConfigured ? 'PIN Set' : 'No PIN'})
                   </option>
                 ))
               ) : (
@@ -360,15 +362,15 @@ export default function AuthenticationView({
         {authStage === SYSTEM_STATES.PIN_REQUIRED || authStage === SYSTEM_STATES.PIN_FAILED ? (
           
           /* =======================================================
-             STEP 2: VAULT PIN KEYPAD & VERIFICATION SCREEN
+             FACTOR 2: VAULT PIN KEYPAD & VERIFICATION SCREEN
              ======================================================= */
           <div className="max-w-md mx-auto space-y-5 text-center">
             
             {/* Step 2 Challenge Banner with Countdown */}
             <div className="p-3 rounded-lg bg-cyan-950/40 border border-cyan-800/80 text-cyan-300 font-mono text-xs flex items-center justify-between">
               <div className="flex items-center space-x-2">
-                <ShieldCheck className="w-4 h-4 text-cyan-400" />
-                <span>Biometric Passed â€¢ Step 2 Challenge Active</span>
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                <span>Factor 1 (Fingerprint) Passed • Challenge Active</span>
               </div>
               <div className="flex items-center space-x-1.5 font-bold text-white bg-zinc-900 px-2 py-0.5 rounded border border-cyan-800">
                 <Timer className="w-3.5 h-3.5 text-cyan-400" />
@@ -377,11 +379,14 @@ export default function AuthenticationView({
             </div>
 
             <div className="w-14 h-14 mx-auto rounded-xl bg-zinc-900 border border-zinc-700 flex items-center justify-center text-zinc-200">
-              <KeyRound className="w-7 h-7 text-cyan-400" />
+              <KeyRound className="w-7 h-7 text-amber-400" />
             </div>
 
             <div>
-              <h2 className="text-lg font-bold text-white">Enter Vault Security PIN</h2>
+              <div className="text-[10px] font-mono uppercase text-amber-400 font-semibold tracking-wider">
+                Factor 2 of 2: Vault PIN
+              </div>
+              <h2 className="text-lg font-bold text-white mt-0.5">Enter Secret Vault PIN</h2>
               <p className="text-xs font-mono text-zinc-400 mt-1 max-w-sm mx-auto">
                 {stageMessage}
               </p>
@@ -396,11 +401,11 @@ export default function AuthenticationView({
                     key={idx}
                     className={`w-10 h-12 rounded-lg border flex items-center justify-center text-lg font-mono font-bold transition-all ${
                       isFilled 
-                        ? 'border-cyan-400 bg-cyan-950/40 text-cyan-200 scale-105' 
+                        ? 'border-amber-400 bg-amber-950/40 text-amber-200 scale-105' 
                         : 'border-zinc-800 bg-[#0a0a0c] text-zinc-600'
                     }`}
                   >
-                    {isFilled ? 'â€¢' : ''}
+                    {isFilled ? '●' : ''}
                   </div>
                 );
               })}
@@ -441,14 +446,14 @@ export default function AuthenticationView({
                 type="button"
                 onClick={handleVerifyPin}
                 disabled={isSubmitting || enteredPin.length < 4 || lockoutSec > 0}
-                className="py-3 rounded-lg bg-cyan-400 hover:bg-cyan-300 text-black font-sans text-xs font-bold active:scale-95 transition-all cursor-pointer disabled:opacity-40"
+                className="py-3 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-sans text-xs font-bold active:scale-95 transition-all cursor-pointer disabled:opacity-40"
               >
                 {isSubmitting ? 'Verifying...' : 'Unlock'}
               </button>
             </div>
 
             <div className="text-[11px] font-mono text-zinc-500 pt-2">
-              Failure to enter valid PIN within {challengeCountdown}s will cancel biometric authorization.
+              Note: Default demo PIN for Alex Morgan is <strong className="text-amber-400">1234</strong>.
             </div>
 
           </div>
@@ -458,38 +463,49 @@ export default function AuthenticationView({
           /* =======================================================
              AUTHORIZED / VAULT UNLOCKED STATE
              ======================================================= */
-          <div className="text-center py-8 space-y-4 max-w-md mx-auto">
+          <div className="text-center py-6 space-y-5 max-w-lg mx-auto">
             <div className="w-16 h-16 mx-auto rounded-2xl bg-emerald-950/60 border border-emerald-800 flex items-center justify-center text-emerald-400 animate-pulse">
-              <Unlock className="w-8 h-8" />
+              <FolderOpen className="w-8 h-8 text-emerald-400" />
             </div>
 
             <div>
               <span className="text-[10px] font-mono uppercase font-bold px-2 py-0.5 rounded bg-emerald-950/80 border border-emerald-800 text-emerald-300">
-                Two-Step Verification Authorized
+                Multi-Authenticator 2FA Verification Succeeded
               </span>
               <h2 className="text-2xl font-bold font-sans text-white mt-1.5">
-                Vault Unlocked (Servo 90Â°)
+                Vault & Confidential Folder Unlocked!
               </h2>
               <p className="text-xs font-mono text-zinc-400 mt-1">
                 {stageMessage}
               </p>
             </div>
 
-            <button
-              onClick={() => {
-                setAuthStage(SYSTEM_STATES.LOCKED);
-                setStageMessage('System locked. Ready for next operator.');
-              }}
-              className="px-5 py-2.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-xs font-mono text-zinc-200 transition-all inline-flex items-center space-x-2"
-            >
-              <span>Relock & Return to Standby</span>
-            </button>
+            {/* CTAs: Open Folder or Relock */}
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+              <button
+                onClick={onOpenVaultFolder}
+                className="w-full sm:w-auto inline-flex items-center justify-center space-x-2 px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-emerald-950/40 transition-all hover:scale-[1.02]"
+              >
+                <FolderLock className="w-4 h-4" />
+                <span>Open Secure Vault & Folder →</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setAuthStage(SYSTEM_STATES.LOCKED);
+                  setStageMessage('System locked. Ready for next operator.');
+                }}
+                className="w-full sm:w-auto px-5 py-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-xs font-mono text-zinc-200 transition-all"
+              >
+                Relock Vault
+              </button>
+            </div>
           </div>
 
         ) : (
 
           /* =======================================================
-             STEP 1: BIOMETRIC SCAN / STANDBY SCREEN
+             FACTOR 1: FINGERPRINT / BIOMETRIC SCAN SCREEN
              ======================================================= */
           <div className="text-center space-y-4 max-w-md mx-auto">
             <div className="w-16 h-16 mx-auto rounded-2xl bg-zinc-900 border border-zinc-700 flex items-center justify-center text-zinc-200">
@@ -501,36 +517,43 @@ export default function AuthenticationView({
             </div>
 
             <div>
-              <div className="text-[10px] font-mono uppercase text-zinc-500 font-semibold">
-                Step 1 of 2: Biometric Factor
+              <div className="text-[10px] font-mono uppercase text-cyan-400 font-semibold tracking-wider">
+                Factor 1 of 2: Biometric Fingerprint
               </div>
               <h2 className="text-xl font-bold text-white mt-0.5">
-                {selectedUser ? `${selectedUser.fullName}'s Biometric Scan` : 'Place Finger on HW-827 Pulse Sensor'}
+                {selectedUser ? `${selectedUser.fullName}'s Fingerprint Scan` : 'Place Finger on Sensor'}
               </h2>
               <p className="text-xs font-mono text-zinc-400 mt-1">
                 {stageMessage}
               </p>
             </div>
 
-            <div className="flex justify-center space-x-3 pt-2">
-              {!isHardwareConnected ? (
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+              <button
+                onClick={isRunning ? onStop : handleVerifyBiometric}
+                disabled={isSubmitting || lockoutSec > 0}
+                className="w-full sm:w-auto px-6 py-2.5 rounded-lg font-sans font-semibold text-xs text-black bg-cyan-400 hover:bg-cyan-300 transition-all inline-flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50 shadow-lg shadow-cyan-950/40"
+              >
+                {isRunning || isSubmitting ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Analyzing Pulse Waves...</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>Scan Fingerprint / PPG Pulse</span>
+                  </>
+                )}
+              </button>
+
+              {!isHardwareConnected && (
                 <button
                   onClick={onConnectHardware}
-                  className="px-5 py-2.5 rounded-lg font-sans font-semibold text-xs text-black bg-white hover:bg-zinc-200 transition-all cursor-pointer"
+                  className="w-full sm:w-auto px-4 py-2.5 rounded-lg border border-zinc-700 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 text-xs font-mono inline-flex items-center justify-center space-x-1.5 transition-colors"
                 >
-                  Connect Arduino UNO (USB)
-                </button>
-              ) : (
-                <button
-                  onClick={isRunning ? onStop : () => {
-                    onStart();
-                    handleVerifyBiometric();
-                  }}
-                  disabled={isSubmitting || lockoutSec > 0}
-                  className="px-6 py-2.5 rounded-lg font-sans font-semibold text-xs text-black bg-white hover:bg-zinc-200 transition-all inline-flex items-center space-x-2 cursor-pointer disabled:opacity-50"
-                >
-                  {isRunning ? <Square className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current" />}
-                  <span>{isRunning ? 'Cancel Scan' : 'Start Biometric Scan'}</span>
+                  <Usb className="w-3.5 h-3.5 text-zinc-400" />
+                  <span>Connect USB Arduino</span>
                 </button>
               )}
             </div>

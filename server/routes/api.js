@@ -1,6 +1,7 @@
 import express from 'express';
 import { authService } from '../services/authService.js';
 import { deviceService } from '../services/deviceService.js';
+import { vaultFolderService } from '../services/vaultFolderService.js';
 import { repository } from '../repositories/index.js';
 import { requireAuth } from '../middleware/authMiddleware.js';
 import { BiometricService } from '../services/biometricService.js';
@@ -119,6 +120,52 @@ router.get('/vault/status', (req, res) => {
     isFailClosed: true,
     lastCommunication: deviceState.lastCommunication
   });
+});
+
+/**
+ * Vault Protected Files & Folder Management
+ */
+router.get('/vault/files', (req, res) => {
+  try {
+    const files = vaultFolderService.getFiles();
+    res.json({ success: true, count: files.length, files });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.get('/vault/files/:id', (req, res) => {
+  try {
+    const file = vaultFolderService.getFileById(req.params.id);
+    if (!file) {
+      return res.status(404).json({ success: false, error: 'File not found in secure vault.' });
+    }
+    res.json({ success: true, file });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/vault/files', (req, res) => {
+  try {
+    const { name, category, content, mimeType } = req.body;
+    const newFile = vaultFolderService.addFile({ name, category, content, mimeType });
+    res.status(201).json({ success: true, file: newFile });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+router.delete('/vault/files/:id', (req, res) => {
+  try {
+    const ok = vaultFolderService.deleteFile(req.params.id);
+    if (!ok) {
+      return res.status(404).json({ success: false, error: 'File not found.' });
+    }
+    res.json({ success: true, message: 'File removed from vault folder.' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 /**

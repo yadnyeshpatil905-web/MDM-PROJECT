@@ -9,6 +9,7 @@ import LiveOscilloscopeView from './views/LiveOscilloscopeView';
 import HistoryView from './views/HistoryView';
 import DeviceStatusView from './views/DeviceStatusView';
 import SettingsView from './views/SettingsView';
+import VaultFolderView from './views/VaultFolderView';
 import { WebSerialDriver } from './services/webSerial';
 import { PpgSimulator } from './services/ppgEngine';
 import { parseArduinoSerialLine } from './services/serialParser';
@@ -23,6 +24,9 @@ export default function App() {
   const [isHardwareConnected, setIsHardwareConnected] = useState(false);
   const [hardwareStatusMsg, setHardwareStatusMsg] = useState('Arduino Disconnected (Simulated Mode Available)');
   const [registeredUsers, setRegisteredUsers] = useState([]);
+  const [isVaultUnlocked, setIsVaultUnlocked] = useState(false);
+  const [authenticatedUser, setAuthenticatedUser] = useState(null);
+  const [vaultSession, setVaultSession] = useState(null);
 
   // System & Engine State
   const [engineState, setEngineState] = useState({
@@ -98,10 +102,14 @@ export default function App() {
 
     socket.on('deviceState', (state) => {
       if (state) {
+        const isUnlocked = state.servoStatus === 'UNLOCKED';
+        if (!isUnlocked) {
+          setIsVaultUnlocked(false);
+        }
         setEngineState(prev => ({
           ...prev,
           servoAngle: state.servoAngle ?? prev.servoAngle,
-          state: state.servoStatus === 'UNLOCKED' ? SYSTEM_STATES.AUTHORIZED : prev.state
+          state: isUnlocked ? SYSTEM_STATES.AUTHORIZED : prev.state
         }));
       }
     });
@@ -316,21 +324,56 @@ export default function App() {
       setEngineState(prev => ({ ...prev, mode: 'ENROLLMENT' }));
       if (simulatorRef.current) simulatorRef.current.setMode('ENROLLMENT');
       handleSendSerial('MODE:ENROLL');
-    } else if (tab === 'auth' || tab === 'dashboard') {
+    } else if (tab === 'auth' || tab === 'dashboard' || tab === 'vault') {
       setEngineState(prev => ({ ...prev, mode: 'AUTHENTICATION' }));
       if (simulatorRef.current) simulatorRef.current.setMode('AUTHENTICATION');
       handleSendSerial('MODE:AUTH');
     }
   };
 
-  const handleAuthSuccess = () => {
+  const handleAuthSuccess = (user, result) => {
     sounds.playAccessGranted();
+    setIsVaultUnlocked(true);
+    if (user) setAuthenticatedUser(user);
+    if (result) setVaultSession(result);
+
+    setEngineState(prev => ({
+      ...prev,
+      servoAngle: 90,
+      state: SYSTEM_STATES.AUTHORIZED,
+      statusMessage: 'MULTI-AUTHENTICATOR VERIFIED • VAULT & FOLDER UNLOCKED'
+    }));
+
     if (simulatorRef.current) {
-      simulatorRef.current.unlockAuthorized(5);
+      simulatorRef.current.unlockAuthorized(60);
     }
     // Also notify physical Arduino via serial if connected
     if (isHardwareConnected) {
       handleSendSerial("CMD:UNLOCK AUTH_AUTHORIZED");
+    }
+  };
+
+  const handleLockVault = async () => {
+    sounds.playAccessDenied();
+    setIsVaultUnlocked(false);
+    setAuthenticatedUser(null);
+    setVaultSession(null);
+
+    setEngineState(prev => ({
+      ...prev,
+      servoAngle: 0,
+      state: SYSTEM_STATES.LOCKED,
+      statusMessage: 'VAULT & FOLDER RELOCKED • DEADBOLT ENGAGED'
+    }));
+
+    if (authenticatedUser?.id) {
+      try {
+        await api.relockVault(authenticatedUser.id);
+      } catch (e) {}
+    }
+
+    if (isHardwareConnected) {
+      handleSendSerial("CMD:LOCK");
     }
   };
 
@@ -354,6 +397,7 @@ export default function App() {
         <Sidebar 
           activeTab={activeTab} 
           onSelectTab={handleSelectTab} 
+          isVaultUnlocked={isVaultUnlocked}
         />
 
         {/* Dynamic View Panel */}
@@ -383,6 +427,18 @@ export default function App() {
               registeredUsers={registeredUsers}
               onRefreshUsers={loadRegisteredUsers}
               onAuthSuccess={handleAuthSuccess}
+              onOpenVaultFolder={() => setActiveTab('vault')}
+            />
+          )}
+
+          {activeTab === 'vault' && (
+            <VaultFolderView
+              isVaultUnlocked={isVaultUnlocked}
+              authenticatedUser={authenticatedUser}
+              vaultSession={vaultSession}
+              servoAngle={engineState.servoAngle}
+              onLockVault={handleLockVault}
+              onOpenAuth={() => setActiveTab('auth')}
             />
           )}
 
@@ -400,6 +456,7 @@ export default function App() {
                 loadRegisteredUsers();
                 setActiveTab('auth');
               }}
+              onNavigateToAuth={() => setActiveTab('auth')}
             />
           )}
 

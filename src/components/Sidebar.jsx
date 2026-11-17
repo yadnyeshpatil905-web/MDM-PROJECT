@@ -7,14 +7,22 @@ import {
   History, 
   Cpu, 
   Settings, 
-  ShieldCheck 
+  ShieldCheck,
+  FolderLock,
+  Lock,
+  Unlock
 } from 'lucide-react';
 
-export default function Sidebar({ activeTab = 'dashboard', onSelectTab = () => {} }) {
+export default function Sidebar({ 
+  activeTab = 'dashboard', 
+  onSelectTab = () => {},
+  isVaultUnlocked = false 
+}) {
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'auth', label: 'Biometric Auth', icon: Fingerprint },
-    { id: 'enroll', label: 'Enroll Credential', icon: UserPlus },
+    { id: 'auth', label: 'Multi-Auth Unlock', icon: Fingerprint, badge: '2FA' },
+    { id: 'vault', label: 'Secure Vault / Folder', icon: FolderLock, isVault: true },
+    { id: 'enroll', label: 'Enroll Fingerprint & PIN', icon: UserPlus },
     { id: 'live_ppg', label: 'PPG Monitor', icon: Activity },
     { id: 'history', label: 'Audit History', icon: History },
     { id: 'device_status', label: 'Device Status', icon: Cpu },
@@ -35,14 +43,40 @@ export default function Sidebar({ activeTab = 'dashboard', onSelectTab = () => {
             <button
               key={item.id}
               onClick={() => onSelectTab(item.id)}
-              className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-md font-medium text-xs transition-colors ${
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-md font-medium text-xs transition-colors ${
                 isActive
                   ? 'bg-zinc-800 text-white font-semibold'
                   : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'
               }`}
             >
-              <Icon className={`w-4 h-4 ${isActive ? 'text-zinc-100' : 'text-zinc-500'}`} />
-              <span>{item.label}</span>
+              <div className="flex items-center space-x-2.5 truncate">
+                <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-zinc-100' : 'text-zinc-500'}`} />
+                <span className="truncate">{item.label}</span>
+              </div>
+
+              {item.isVault ? (
+                <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded flex items-center space-x-1 ${
+                  isVaultUnlocked 
+                    ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' 
+                    : 'bg-zinc-900 text-zinc-500 border border-zinc-800'
+                }`}>
+                  {isVaultUnlocked ? (
+                    <>
+                      <Unlock className="w-2.5 h-2.5" />
+                      <span>OPEN</span>
+                    </>
+                  ) : (
+                    <>
+                      <Lock className="w-2.5 h-2.5" />
+                      <span>LOCKED</span>
+                    </>
+                  )}
+                </span>
+              ) : item.badge ? (
+                <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-400 border border-cyan-800">
+                  {item.badge}
+                </span>
+              ) : null}
             </button>
           );
         })}
@@ -51,11 +85,11 @@ export default function Sidebar({ activeTab = 'dashboard', onSelectTab = () => {
       {/* Footer info */}
       <div className="p-3 m-2 rounded-md bg-zinc-900/60 border border-zinc-800 text-xs text-zinc-400 space-y-1">
         <div className="flex items-center space-x-1.5 text-zinc-300 font-medium text-[11px]">
-          <ShieldCheck className="w-3.5 h-3.5 text-zinc-400" />
-          <span>Biometric Protection</span>
+          <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
+          <span>Multi-Authenticator</span>
         </div>
         <p className="text-[10px] text-zinc-500 leading-tight">
-          20-point morphological template stored in ATmega EEPROM.
+          HW-827 Biometric Fingerprint + Salted Vault PIN 2FA.
         </p>
       </div>
     </aside>

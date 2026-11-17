@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   UserPlus, 
   Fingerprint, 
@@ -12,7 +12,12 @@ import {
   RefreshCw, 
   ShieldCheck,
   Eye,
-  EyeOff
+  EyeOff,
+  ArrowRight,
+  ArrowLeft,
+  Key,
+  FolderLock,
+  Sparkles
 } from 'lucide-react';
 import PpgWaveformCanvas from '../components/PpgWaveformCanvas';
 import TemplateComparisonCard from '../components/TemplateComparisonCard';
@@ -24,7 +29,8 @@ export default function EnrollmentView({
   onConnectHardware = () => {},
   onStartEnrollment = () => {},
   onStopEnrollment = () => {},
-  onUserRegistered = () => {}
+  onUserRegistered = () => {},
+  onNavigateToAuth = () => {}
 }) {
   const {
     bpm = 0,
@@ -40,6 +46,9 @@ export default function EnrollmentView({
     latestAc = 0,
     signalAmplitude = 0
   } = engineState || {};
+
+  // Guided Wizard Step: 1 = Biometric Fingerprint Enrollment, 2 = Vault PIN & Operator Setup, 3 = Complete
+  const [wizardStep, setWizardStep] = useState(1);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -68,35 +77,52 @@ export default function EnrollmentView({
   const activeTemplate = capturedTemplate || (isTemplateReady ? currentTemplate : null);
   const activeRawRecording = capturedRawRecording || rawRecording;
 
-
   const handleCaptureTemplate = () => {
     setCapturedTemplate(null);
     setCapturedRawRecording(null);
     onStartEnrollment();
     setEnrollmentStatus('ENROLLING_SENSOR');
-    setStatusMessage('Acquiring clean pulse waves from HW-827 Pulse Sensor (Pin A0)...');
+    setStatusMessage('Acquiring clean biometric pulse & fingerprint waves from HW-827 Pulse Sensor (Pin A0)...');
   };
 
   const handleCancelCapture = () => {
     onStopEnrollment();
     setEnrollmentStatus('IDLE');
-    setStatusMessage('PPG capture cancelled. Click Acquire Biometric PPG to try again.');
+    setStatusMessage('Biometric capture cancelled. Click button to try again.');
   };
 
   // Check whenever currentTemplate or rawRecording updates during live acquisition
-  React.useEffect(() => {
+  useEffect(() => {
     if (enrollmentStatus === 'ENROLLING_SENSOR' && currentTemplate && currentTemplate.length === 20 && currentTemplate.some(v => v > 0)) {
       setCapturedTemplate([...currentTemplate]);
       if (rawRecording) {
         setCapturedRawRecording({ ...rawRecording });
       }
       setEnrollmentStatus('IDLE');
-      setStatusMessage('Biometric pulse morphology & HW-827 Pulse Sensor raw waveforms captured! Complete form to register.');
+      setStatusMessage('✓ Fingerprint pulse waveform & morphology captured! Ready to configure Vault PIN.');
     }
   }, [currentTemplate, rawRecording, enrollmentStatus]);
 
+  // Keypad numeric helper for Step 2 PIN
+  const handleKeypadPress = (digit) => {
+    if (formData.pin.length < 8) {
+      setFormData(prev => ({
+        ...prev,
+        pin: prev.pin + digit,
+      }));
+    }
+  };
+
+  const handleKeypadClear = () => {
+    setFormData(prev => ({ ...prev, pin: '', pinConfirm: '' }));
+  };
+
+  const handleKeypadBackspace = () => {
+    setFormData(prev => ({ ...prev, pin: prev.pin.slice(0, -1) }));
+  };
+
   const handleSubmit = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     setStatusMessage('');
 
     // Validations
@@ -126,7 +152,7 @@ export default function EnrollmentView({
       return;
     }
 
-    if (formData.pin !== formData.pinConfirm) {
+    if (formData.pinConfirm && formData.pin !== formData.pinConfirm) {
       setEnrollmentStatus('ERROR');
       setStatusMessage('Vault PIN and Confirmation PIN do not match.');
       return;
@@ -135,20 +161,21 @@ export default function EnrollmentView({
     const finalTemplate = activeTemplate || currentTemplate;
     if (!finalTemplate || finalTemplate.length !== 20 || !finalTemplate.some(v => v > 0)) {
       setEnrollmentStatus('ERROR');
-      setStatusMessage('Biometric pulse capture required. Please acquire a clean PPG waveform before registering.');
+      setStatusMessage('Step 1 Biometric capture required. Please acquire your fingerprint template before registering.');
+      setWizardStep(1);
       return;
     }
 
     try {
       setEnrollmentStatus('SUBMITTING');
-      setStatusMessage('Hashing PIN securely and enrolling biometric credential into Supabase backend...');
+      setStatusMessage('Hashing PIN with salted Scrypt and enrolling biometric credential into Supabase backend...');
 
       const response = await api.register({
         fullName: formData.fullName,
         email: formData.email,
         password: formData.password,
         pin: formData.pin,
-        pinConfirm: formData.pinConfirm,
+        pinConfirm: formData.pinConfirm || formData.pin,
         templateData: finalTemplate,
         rawRecording: activeRawRecording
       });
@@ -159,10 +186,8 @@ export default function EnrollmentView({
 
       setEnrollmentStatus('SUCCESS');
       setEnrolledUser(response);
-      const rawNotice = response.rawRecordingEnrolled 
-        ? ` • HW-827 Pulse Sensor waveform (${response.rawValidationStats?.sampleCount || activeRawRecording?.sample_count} samples @ ${response.rawValidationStats?.sampleRate || activeRawRecording?.sample_rate}Hz) committed to public.biometric_recordings`
-        : '';
-      setStatusMessage(`User ${response.fullName} registered! UUID: ${response.userId}${rawNotice}`);
+      setWizardStep(3);
+      setStatusMessage(`User ${response.fullName} successfully registered with Multi-Authenticator credentials!`);
       onUserRegistered(response);
 
       // Reset form
@@ -181,9 +206,8 @@ export default function EnrollmentView({
     }
   };
 
-
   return (
-    <div className="space-y-6 max-w-6xl mx-auto">
+    <div className="space-y-6 max-w-5xl mx-auto">
       
       {/* Header Banner */}
       <div className="pro-card p-5 border border-zinc-800 bg-[#101014] flex flex-col md:flex-row items-center justify-between gap-4">
@@ -194,341 +218,529 @@ export default function EnrollmentView({
           <div>
             <div className="flex items-center space-x-2">
               <span className="text-[10px] font-mono uppercase font-semibold text-cyan-400 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-800/80">
-                Registration & Enrollment Flow
+                Multi-Authenticator Enrollment Wizard
               </span>
-              <span className="text-xs font-mono text-zinc-500">Supabase Auth & Salted Vault PIN</span>
+              <span className="text-xs font-mono text-zinc-500">Step 1: Fingerprint • Step 2: Vault PIN</span>
             </div>
-            <h2 className="text-lg font-bold font-sans text-white mt-0.5">
-              Enroll New Operator Credential
-            </h2>
+            <h1 className="text-xl font-bold text-white tracking-tight mt-0.5">
+              Enroll Fingerprint & Set Vault PIN
+            </h1>
           </div>
         </div>
 
-        <div className="flex items-center space-x-2">
-          {!isHardwareConnected && (
-            <button
-              type="button"
-              onClick={onConnectHardware}
-              className="px-3 py-2 rounded-md font-sans text-xs text-zinc-400 bg-zinc-900 border border-zinc-800 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
-            >
-              Connect USB
-            </button>
-          )}
-
-          {!isRunning ? (
-            <button
-              type="button"
-              onClick={handleCaptureTemplate}
-              className="px-4 py-2 rounded-md font-sans font-semibold text-xs text-black bg-cyan-400 hover:bg-cyan-300 active:scale-95 transition-all inline-flex items-center space-x-1.5 shadow-sm cursor-pointer"
-            >
-              <Play className="w-3.5 h-3.5 fill-current" />
-              <span>{activeTemplate ? 'Re-scan Biometric PPG' : 'Acquire Biometric PPG'}</span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={handleCancelCapture}
-              className="px-4 py-2 rounded-md font-sans font-medium text-xs text-zinc-300 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 transition-colors inline-flex items-center space-x-1.5 cursor-pointer"
-            >
-              <Square className="w-3.5 h-3.5 fill-current text-zinc-400" />
-              <span>Cancel Capture</span>
-            </button>
-          )}
+        {/* Arduino / Simulator Status */}
+        <div className="flex items-center space-x-2 text-xs font-mono">
+          <span className={`w-2 h-2 rounded-full ${isHardwareConnected ? 'bg-emerald-400 animate-pulse' : 'bg-cyan-400'}`} />
+          <span className="text-zinc-400">
+            {isHardwareConnected ? 'Arduino HW-827 Pulse Sensor Connected' : 'Simulated Sensor Mode Ready'}
+          </span>
         </div>
       </div>
 
-      {/* Status Notice */}
+      {/* Sequential 2-Step Progress Indicator */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        
+        {/* Step 1 Pill */}
+        <div 
+          onClick={() => { if (wizardStep !== 3) setWizardStep(1); }}
+          className={`p-4 rounded-xl border transition-all cursor-pointer ${
+            wizardStep === 1 
+              ? 'border-cyan-500/80 bg-cyan-950/20 shadow-lg shadow-cyan-950/30' 
+              : activeTemplate
+              ? 'border-emerald-800/80 bg-emerald-950/20'
+              : 'border-zinc-800 bg-zinc-950 opacity-60'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-mono font-bold text-xs ${
+                wizardStep === 1 
+                  ? 'bg-cyan-500 text-black' 
+                  : activeTemplate 
+                  ? 'bg-emerald-500 text-black' 
+                  : 'bg-zinc-800 text-zinc-400'
+              }`}>
+                {activeTemplate ? '✓' : '1'}
+              </div>
+              <div>
+                <div className="text-xs font-mono font-semibold uppercase tracking-wider text-cyan-400">
+                  Step 1: Biometric Enrollment
+                </div>
+                <div className="text-sm font-bold text-white">
+                  {activeTemplate ? 'Fingerprint Pulse Template Enrolled' : 'Acquire Fingerprint / PPG Pulse'}
+                </div>
+              </div>
+            </div>
+            <Fingerprint className={`w-5 h-5 ${activeTemplate ? 'text-emerald-400' : 'text-cyan-400'}`} />
+          </div>
+        </div>
+
+        {/* Step 2 Pill */}
+        <div 
+          onClick={() => { if (activeTemplate && wizardStep !== 3) setWizardStep(2); }}
+          className={`p-4 rounded-xl border transition-all cursor-pointer ${
+            wizardStep === 2 
+              ? 'border-amber-500/80 bg-amber-950/20 shadow-lg shadow-amber-950/30' 
+              : formData.pin
+              ? 'border-emerald-800/80 bg-emerald-950/20'
+              : 'border-zinc-800 bg-zinc-950 opacity-60'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-mono font-bold text-xs ${
+                wizardStep === 2 
+                  ? 'bg-amber-500 text-black' 
+                  : formData.pin 
+                  ? 'bg-emerald-500 text-black' 
+                  : 'bg-zinc-800 text-zinc-400'
+              }`}>
+                {formData.pin ? '✓' : '2'}
+              </div>
+              <div>
+                <div className="text-xs font-mono font-semibold uppercase tracking-wider text-amber-400">
+                  Step 2: Security PIN & Operator
+                </div>
+                <div className="text-sm font-bold text-white">
+                  {formData.pin ? 'Vault PIN Configured' : 'Configure Secret Vault PIN'}
+                </div>
+              </div>
+            </div>
+            <Key className={`w-5 h-5 ${formData.pin ? 'text-emerald-400' : 'text-amber-400'}`} />
+          </div>
+        </div>
+
+      </div>
+
+      {/* Status Messages */}
       {statusMessage && (
-        <div className={`p-3.5 rounded-lg border font-mono text-xs flex items-center space-x-2.5 ${
-          enrollmentStatus === 'SUCCESS' ? 'bg-emerald-950/40 border-emerald-800 text-emerald-300' :
-          enrollmentStatus === 'ERROR' ? 'bg-rose-950/40 border-rose-800 text-rose-300' :
-          enrollmentStatus === 'SUBMITTING' ? 'bg-zinc-900 border-zinc-700 text-cyan-300' :
-          'bg-zinc-900 border-zinc-800 text-zinc-300'
+        <div className={`p-3.5 rounded-lg border text-xs font-mono flex items-center space-x-2 ${
+          enrollmentStatus === 'SUCCESS' ? 'bg-emerald-950/50 border-emerald-800 text-emerald-300' :
+          enrollmentStatus === 'ERROR' ? 'bg-rose-950/50 border-rose-800 text-rose-300' :
+          enrollmentStatus === 'ENROLLING_SENSOR' ? 'bg-cyan-950/50 border-cyan-800 text-cyan-300 animate-pulse' :
+          'bg-zinc-900 border-zinc-700 text-zinc-300'
         }`}>
           {enrollmentStatus === 'SUCCESS' ? <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" /> :
            enrollmentStatus === 'ERROR' ? <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" /> :
-           enrollmentStatus === 'SUBMITTING' ? <RefreshCw className="w-4 h-4 text-cyan-400 animate-spin shrink-0" /> :
-           <ShieldCheck className="w-4 h-4 text-zinc-400 shrink-0" />}
-          <span className="flex-1">{statusMessage}</span>
+           <RefreshCw className="w-4 h-4 text-cyan-400 shrink-0 animate-spin" />}
+          <span>{statusMessage}</span>
         </div>
       )}
 
-      {/* Main 2-Column Workspace */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        
-        {/* Left Column: Form (5 Cols) */}
-        <form onSubmit={handleSubmit} className="lg:col-span-5 pro-card p-5 border border-zinc-800 bg-[#101014] space-y-4">
-          <div className="border-b border-zinc-800/80 pb-3">
-            <h3 className="font-semibold text-sm text-zinc-100 flex items-center space-x-2">
-              <KeyRound className="w-4 h-4 text-cyan-400" />
-              <span>Operator Registration Form</span>
-            </h3>
-            <p className="text-[11px] font-mono text-zinc-500 mt-0.5">
-              Identity will map to Supabase Auth UUID & Hash Store
-            </p>
-          </div>
-
-          <div className="space-y-3 font-mono text-xs">
-            {/* Full Name */}
-            <div>
-              <label className="text-zinc-400 block mb-1">Full Name</label>
-              <input
-                type="text"
-                placeholder="e.g. Alex Morgan"
-                value={formData.fullName}
-                onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                required
-                className="w-full bg-[#0a0a0c] border border-zinc-800 rounded px-3 py-2 text-white focus:outline-none focus:border-cyan-500"
-              />
-            </div>
-
-            {/* Email */}
-            <div>
-              <label className="text-zinc-400 block mb-1">Email Address (Unique Identity)</label>
-              <div className="relative">
-                <Mail className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
-                <input
-                  type="email"
-                  placeholder="operator@internal.org"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  required
-                  className="w-full bg-[#0a0a0c] border border-zinc-800 rounded pl-8 pr-3 py-2 text-white focus:outline-none focus:border-cyan-500"
-                />
-              </div>
-            </div>
-
-            {/* Account Password */}
-            <div>
-              <label className="text-zinc-400 block mb-1">Account Password (Min 8 Chars)</label>
-              <div className="relative">
-                <Lock className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  required
-                  minLength={8}
-                  className="w-full bg-[#0a0a0c] border border-zinc-800 rounded pl-8 pr-8 py-2 text-white focus:outline-none focus:border-cyan-500"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
-                >
-                  {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                </button>
-              </div>
-            </div>
-
-            {/* Vault PIN & Confirm PIN */}
-            <div className="grid grid-cols-2 gap-3 pt-2 border-t border-zinc-800/60">
+      {/* ========================================================================= */}
+      {/* STEP 1: FINGERPRINT & BIOMETRIC PULSE ACQUISITION                         */}
+      {/* ========================================================================= */}
+      {wizardStep === 1 && (
+        <div className="space-y-6">
+          <div className="pro-card p-6 border border-zinc-800 bg-[#0e0e12] rounded-xl space-y-5">
+            
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-800/80 pb-4">
               <div>
-                <label className="text-zinc-400 block mb-1">Vault PIN (4-8 Digits)</label>
-                <div className="relative">
-                  <input
-                    type={showPin ? 'text' : 'password'}
-                    placeholder="1234"
-                    maxLength={8}
-                    pattern="[0-9]{4,8}"
-                    value={formData.pin}
-                    onChange={(e) => setFormData({ ...formData, pin: e.target.value.replace(/\D/g, '') })}
-                    required
-                    className="w-full bg-[#0a0a0c] border border-zinc-800 rounded px-2.5 py-2 text-white text-center tracking-widest focus:outline-none focus:border-cyan-500"
+                <div className="inline-flex items-center space-x-2 px-2.5 py-0.5 rounded bg-cyan-950/80 border border-cyan-800 text-cyan-300 text-[10px] font-mono uppercase font-semibold">
+                  <Fingerprint className="w-3.5 h-3.5" />
+                  <span>Factor 1 • Physical Biometric Template</span>
+                </div>
+                <h2 className="text-xl font-bold text-white tracking-tight mt-1">
+                  Enroll Fingerprint / PPG Pulse Signature
+                </h2>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Place finger steadily on the HW-827 Pulse Sensor (Pin A0) or click Acquire Biometric to capture 5 consecutive heartbeat cycles.
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center space-x-3">
+                {enrollmentStatus === 'ENROLLING_SENSOR' || isRunning ? (
+                  <button
+                    onClick={handleCancelCapture}
+                    className="px-4 py-2 rounded-lg bg-rose-950/80 hover:bg-rose-900 border border-rose-800 text-rose-300 font-semibold text-xs flex items-center space-x-1.5 transition-colors"
+                  >
+                    <Square className="w-3.5 h-3.5 fill-current" />
+                    <span>Cancel Capture</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleCaptureTemplate}
+                    className="px-5 py-2.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs flex items-center space-x-2 shadow-lg shadow-cyan-900/40 transition-all hover:scale-[1.02]"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>{activeTemplate ? 'Rescan Fingerprint' : 'Acquire Biometric / Fingerprint'}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Live Waveform Canvas */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs font-mono text-zinc-400">
+                <span className="flex items-center space-x-1.5">
+                  <span className={`w-2 h-2 rounded-full ${isRunning ? 'bg-cyan-400 animate-pulse' : 'bg-zinc-600'}`} />
+                  <span>HW-827 Pulse Sensor Optical Oscilloscope (60 FPS)</span>
+                </span>
+                <span>{bpm > 0 ? `${bpm} BPM` : 'Baseline: 512 ADC'}</span>
+              </div>
+              <div className="h-44 rounded-lg overflow-hidden border border-zinc-800 bg-black">
+                <PpgWaveformCanvas waveBuffer={waveBuffer} isRunning={isRunning || enrollmentStatus === 'ENROLLING_SENSOR'} />
+              </div>
+            </div>
+
+            {/* Sensor Telemetry Badges */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs font-mono">
+              <div className="p-3 rounded-lg border border-zinc-800/80 bg-zinc-950">
+                <span className="text-[10px] text-zinc-500 uppercase">Signal Quality</span>
+                <div className="text-white font-semibold mt-0.5">{signalQuality}</div>
+              </div>
+              <div className="p-3 rounded-lg border border-zinc-800/80 bg-zinc-950">
+                <span className="text-[10px] text-zinc-500 uppercase">Beats Captured</span>
+                <div className="text-cyan-400 font-semibold mt-0.5">{beatCount} / 5 Cycles</div>
+              </div>
+              <div className="p-3 rounded-lg border border-zinc-800/80 bg-zinc-950">
+                <span className="text-[10px] text-zinc-500 uppercase">ADC AC Amplitude</span>
+                <div className="text-white font-semibold mt-0.5">{signalAmplitude} mV</div>
+              </div>
+              <div className="p-3 rounded-lg border border-zinc-800/80 bg-zinc-950">
+                <span className="text-[10px] text-zinc-500 uppercase">Template Points</span>
+                <div className="text-emerald-400 font-semibold mt-0.5">20 Morphology Vectors</div>
+              </div>
+            </div>
+
+            {/* If template is already captured, show success card and CTA to Step 2 */}
+            {activeTemplate && (
+              <div className="p-5 rounded-xl border border-emerald-800/70 bg-gradient-to-r from-emerald-950/40 via-zinc-900 to-zinc-950 space-y-4">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 rounded-lg bg-emerald-950 border border-emerald-700 flex items-center justify-center text-emerald-400">
+                      <CheckCircle2 className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-white flex items-center space-x-2">
+                        <span>Fingerprint Pulse Biometric Enrolled!</span>
+                        <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950 px-2 py-0.5 rounded border border-emerald-800">
+                          20-Point Signature Ready
+                        </span>
+                      </h3>
+                      <p className="text-xs text-zinc-400 mt-0.5">
+                        Morphology template generated and staged for ATmega328P EEPROM & Supabase.
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => setWizardStep(2)}
+                    className="inline-flex items-center space-x-2 px-6 py-3 rounded-lg bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-amber-950/40 transition-all hover:scale-[1.02]"
+                  >
+                    <span>Next: Set Vault Security PIN</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* 20-Point Template Visualization */}
+                <div className="pt-2">
+                  <TemplateComparisonCard
+                    enrolledTemplate={activeTemplate}
+                    currentTemplate={activeTemplate}
+                    matchScore={100}
                   />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-zinc-400 block mb-1">Confirm Vault PIN</label>
-                <div className="relative">
-                  <input
-                    type={showPin ? 'text' : 'password'}
-                    placeholder="1234"
-                    maxLength={8}
-                    pattern="[0-9]{4,8}"
-                    value={formData.pinConfirm}
-                    onChange={(e) => setFormData({ ...formData, pinConfirm: e.target.value.replace(/\D/g, '') })}
-                    required
-                    className="w-full bg-[#0a0a0c] border border-zinc-800 rounded px-2.5 py-2 text-white text-center tracking-widest focus:outline-none focus:border-cyan-500"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between text-[10px] text-zinc-500">
-              <span>PIN is hashed with Scrypt + random salt.</span>
-              <button
-                type="button"
-                onClick={() => setShowPin(!showPin)}
-                className="text-zinc-400 hover:text-zinc-200"
-              >
-                {showPin ? 'Hide PINs' : 'Show PINs'}
-              </button>
-            </div>
-          </div>
-
-          {/* Biometric Status Indicator inside Form */}
-          <div className="space-y-2">
-
-            <div className="p-2.5 rounded bg-[#0a0a0c] border border-zinc-800 flex items-center justify-between font-mono text-xs">
-              <div className="flex items-center space-x-2">
-                <Fingerprint className={`w-3.5 h-3.5 ${activeTemplate ? 'text-emerald-400' : 'text-amber-400'}`} />
-                <span className="text-zinc-300">Morphology Template:</span>
-              </div>
-              <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded border ${
-                activeTemplate 
-                  ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800' 
-                  : 'bg-amber-950/60 text-amber-300 border-amber-800'
-              }`}>
-                {activeTemplate ? '20 Points Ready' : 'Pending Scan'}
-              </span>
-            </div>
-
-            <div className="p-2.5 rounded bg-[#0a0a0c] border border-zinc-800 flex items-center justify-between font-mono text-xs">
-              <div className="flex items-center space-x-2">
-                <ShieldCheck className={`w-3.5 h-3.5 ${activeRawRecording ? 'text-cyan-400' : 'text-zinc-500'}`} />
-                <span className="text-zinc-300">HW-827 Pulse Sensor Raw Wave:</span>
-              </div>
-              <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded border ${
-                activeRawRecording 
-                  ? 'bg-cyan-950/60 text-cyan-300 border-cyan-800' 
-                  : 'bg-zinc-900 text-zinc-500 border-zinc-800'
-              }`}>
-                {activeRawRecording ? `${activeRawRecording.sample_count} Samples` : 'Auto-Packaged'}
-              </span>
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={enrollmentStatus === 'SUBMITTING'}
-            className="w-full py-2.5 rounded-md font-sans font-semibold text-xs text-black bg-cyan-400 hover:bg-cyan-300 active:scale-95 transition-all shadow-sm cursor-pointer disabled:opacity-50"
-          >
-            {enrollmentStatus === 'SUBMITTING' ? 'Enrolling Credential...' : 'Register Operator & Commit Credential'}
-          </button>
-        </form>
-
-        {/* Right Column: Guided PPG Waveform & Vector Inspection (7 Cols) */}
-        <div className="lg:col-span-7 space-y-4">
-          
-          {/* Live Sensor Waveform Canvas */}
-          <PpgWaveformCanvas
-            waveBuffer={waveBuffer}
-            bpm={bpm}
-            beatCount={beatCount}
-            signalQuality={signalQuality}
-            isRunning={isRunning || enrollmentStatus === 'ENROLLING_SENSOR'}
-            height={190}
-          />
-
-          {/* HW-827 Pulse Sensor Raw Waveform Ingestion Card */}
-          <div className="pro-card p-4 border border-zinc-800 bg-[#101014] space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <ShieldCheck className="w-4 h-4 text-cyan-400" />
-                <h3 className="font-semibold text-xs text-white">
-                  HW-827 Pulse Sensor Raw PPG Waveform Ingestion (public.biometric_recordings)
-                </h3>
-              </div>
-              <span className="text-[10px] font-mono text-zinc-400 bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800">
-                HW-827 • 10-Bit ADC • Analog Pin A0
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 font-mono text-xs">
-              <div className="p-2.5 rounded bg-[#0a0a0c] border border-zinc-800">
-                <div className="text-[10px] text-zinc-500 uppercase">Raw ADC (0-1023)</div>
-                <div className="text-cyan-400 font-bold text-sm mt-0.5">{latestRaw || latestRed || 512} LSB</div>
-              </div>
-              <div className="p-2.5 rounded bg-[#0a0a0c] border border-zinc-800">
-                <div className="text-[10px] text-zinc-500 uppercase">AC Amplitude</div>
-                <div className="text-rose-400 font-bold text-sm mt-0.5">{signalAmplitude || Math.abs(latestAc || 0)} LSB</div>
-              </div>
-              <div className="p-2.5 rounded bg-[#0a0a0c] border border-zinc-800">
-                <div className="text-[10px] text-zinc-500 uppercase">Sampling Rate</div>
-                <div className="text-white font-bold text-sm mt-0.5">100 Hz</div>
-              </div>
-              <div className="p-2.5 rounded bg-[#0a0a0c] border border-zinc-800">
-                <div className="text-[10px] text-zinc-500 uppercase">Sample Count</div>
-                <div className="text-emerald-400 font-bold text-sm mt-0.5">
-                  {activeRawRecording ? activeRawRecording.sample_count : (isRunning ? 'Streaming...' : '100')}
-                </div>
-              </div>
-            </div>
-
-            <div className="text-[11px] font-mono text-zinc-400 bg-cyan-950/20 p-2.5 rounded border border-cyan-900/40 flex items-center justify-between">
-              <span>Target Table: <code className="text-cyan-300">public.biometric_recordings</code></span>
-              <span className="text-zinc-500">RLS Restricted • Service-Role Only</span>
-            </div>
-          </div>
-
-          {/* Captured 20-Point Template Card */}
-          <div className="pro-card p-4 border border-zinc-800 bg-[#101014] space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Fingerprint className="w-4 h-4 text-cyan-400" />
-                <h3 className="font-semibold text-xs text-white">
-                  Acquired 20-Point Morphological Template
-                </h3>
-              </div>
-              <span className="text-[10px] font-mono text-zinc-500">
-                Normalized 0-255 Amplitude
-              </span>
-            </div>
-
-            {activeTemplate ? (
-              <div className="space-y-3 font-mono text-xs">
-                {/* 20 points mini bar visualization */}
-                <div className="grid grid-cols-20 gap-1 h-14 items-end bg-[#0a0a0c] p-2 rounded border border-zinc-800/80">
-                  {activeTemplate.map((val, idx) => (
-                    <div 
-                      key={idx} 
-                      className="bg-cyan-400/80 hover:bg-cyan-300 rounded-t transition-all group relative"
-                      style={{ height: `${Math.max(4, Math.round((val / 255) * 100))}%` }}
-                      title={`Point ${idx + 1}: ${val}`}
-                    />
-                  ))}
-                </div>
-
-                <div className="text-[10px] text-zinc-500 truncate">
-                  Vector: [{activeTemplate.join(', ')}]
-                </div>
-              </div>
-            ) : (
-              <div className="p-4 text-center rounded bg-[#0a0a0c] border border-zinc-800/80 text-zinc-500 font-mono text-xs space-y-1">
-                <div>No pulse wave captured yet.</div>
-                <div className="text-[10px] text-zinc-600">
-                  Click "Acquire Biometric PPG" to record clean heartbeats from the sensor.
                 </div>
               </div>
             )}
+
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* STEP 2: VAULT SECURITY PIN & OPERATOR REGISTRATION                        */}
+      {/* ========================================================================= */}
+      {wizardStep === 2 && (
+        <div className="space-y-6">
+          <form onSubmit={handleSubmit} className="pro-card p-6 border border-zinc-800 bg-[#0e0e12] rounded-xl space-y-6">
+            
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-800/80 pb-4">
+              <div>
+                <div className="inline-flex items-center space-x-2 px-2.5 py-0.5 rounded bg-amber-950/80 border border-amber-800 text-amber-300 text-[10px] font-mono uppercase font-semibold">
+                  <Key className="w-3.5 h-3.5" />
+                  <span>Factor 2 • Salted Vault PIN Setup</span>
+                </div>
+                <h2 className="text-xl font-bold text-white tracking-tight mt-1">
+                  Set Your Vault PIN & Account Details
+                </h2>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Both your enrolled fingerprint and this PIN will be required whenever opening your secure vault or folder.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setWizardStep(1)}
+                className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-mono text-zinc-300 transition-colors self-start md:self-auto"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Change Fingerprint</span>
+              </button>
+            </div>
+
+            {/* Enrolled Biometric Confirmation Pill */}
+            <div className="p-3 rounded-lg border border-emerald-800/80 bg-emerald-950/30 flex items-center justify-between text-xs">
+              <div className="flex items-center space-x-2 text-emerald-300">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                <span className="font-semibold">Factor 1 Enrolled:</span>
+                <span className="font-mono text-zinc-300">HW-827 PPG 20-Point Waveform Template Acquired</span>
+              </div>
+              <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950 px-2 py-0.5 rounded border border-emerald-800">
+                ACTIVE
+              </span>
+            </div>
+
+            {/* Form Fields Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              
+              {/* Operator Details */}
+              <div className="space-y-4">
+                <div className="text-xs font-mono uppercase font-semibold text-zinc-400 tracking-wider">
+                  Operator Identity
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-zinc-300 mb-1">Full Name</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Alex Morgan"
+                    value={formData.fullName}
+                    onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
+                    className="w-full bg-zinc-900 border border-zinc-700/80 rounded-lg p-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-zinc-300 mb-1">Email Address</label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="e.g. operator@biolock.internal"
+                    value={formData.email}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    className="w-full bg-zinc-900 border border-zinc-700/80 rounded-lg p-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-zinc-300 mb-1">Account Password (8+ chars)</label>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      required
+                      placeholder="Min 8 characters"
+                      value={formData.password}
+                      onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                      className="w-full bg-zinc-900 border border-zinc-700/80 rounded-lg p-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-cyan-500 pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white"
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Secure Vault PIN Configuration */}
+              <div className="space-y-4">
+                <div className="text-xs font-mono uppercase font-semibold text-amber-400 tracking-wider flex items-center justify-between">
+                  <span>Vault PIN Configuration</span>
+                  <span className="text-[10px] text-zinc-500">4 - 8 Numeric Digits</span>
+                </div>
+
+                {/* PIN Input with Mask & Keypad */}
+                <div>
+                  <label className="block text-xs font-medium text-zinc-300 mb-1">Secret Vault PIN</label>
+                  <div className="relative">
+                    <input
+                      type={showPin ? 'text' : 'password'}
+                      required
+                      maxLength={8}
+                      pattern="[0-9]{4,8}"
+                      placeholder="Enter 4 to 8 digits"
+                      value={formData.pin}
+                      onChange={(e) => setFormData({ ...formData, pin: e.target.value.replace(/[^0-9]/g, '') })}
+                      className="w-full bg-zinc-900 border border-zinc-700/80 rounded-lg p-2.5 text-sm font-mono tracking-widest text-center text-amber-300 placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPin(!showPin)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white"
+                    >
+                      {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-zinc-300 mb-1">Confirm Vault PIN</label>
+                  <input
+                    type={showPin ? 'text' : 'password'}
+                    required
+                    maxLength={8}
+                    pattern="[0-9]{4,8}"
+                    placeholder="Re-enter same digits"
+                    value={formData.pinConfirm}
+                    onChange={(e) => setFormData({ ...formData, pinConfirm: e.target.value.replace(/[^0-9]/g, '') })}
+                    className="w-full bg-zinc-900 border border-zinc-700/80 rounded-lg p-2.5 text-sm font-mono tracking-widest text-center text-amber-300 placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                {/* On-Screen Numeric Keypad for fast PIN entry */}
+                <div className="p-3 bg-zinc-950 rounded-xl border border-zinc-800 space-y-2">
+                  <div className="text-[10px] font-mono text-zinc-500 uppercase text-center">Interactive Quick Keypad</div>
+                  <div className="grid grid-cols-3 gap-1.5 max-w-[200px] mx-auto">
+                    {['1','2','3','4','5','6','7','8','9'].map((digit) => (
+                      <button
+                        type="button"
+                        key={digit}
+                        onClick={() => handleKeypadPress(digit)}
+                        className="py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-mono text-sm font-semibold transition-colors border border-zinc-800"
+                      >
+                        {digit}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={handleKeypadClear}
+                      className="py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-rose-400 font-mono text-xs font-semibold transition-colors border border-zinc-800"
+                    >
+                      CLR
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleKeypadPress('0')}
+                      className="py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white font-mono text-sm font-semibold transition-colors border border-zinc-800"
+                    >
+                      0
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleKeypadBackspace}
+                      className="py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-amber-400 font-mono text-xs font-semibold transition-colors border border-zinc-800"
+                    >
+                      ⌫
+                    </button>
+                  </div>
+                </div>
+
+              </div>
+
+            </div>
+
+            {/* Multi-Authenticator Policy Card */}
+            <div className="p-4 rounded-xl border border-zinc-800 bg-zinc-950/80 text-xs text-zinc-400 flex items-start space-x-3">
+              <ShieldCheck className="w-5 h-5 text-cyan-400 shrink-0 mt-0.5" />
+              <div>
+                <strong className="text-zinc-200">How the Multi-Authenticator Vault works:</strong>
+                <p className="mt-1 leading-relaxed text-zinc-400">
+                  Whenever unlocking the confidential vault or folder, you will first touch the biometric sensor with your enrolled finger. Once your pulse waveform matches (≥ 70% threshold), you will enter this PIN to release the hardware micro-servo deadbolt. Neither factor alone can open the vault.
+                </p>
+              </div>
+            </div>
+
+            {/* Submit Button */}
+            <div className="pt-2 flex items-center justify-end space-x-4">
+              <button
+                type="button"
+                onClick={() => setWizardStep(1)}
+                className="px-5 py-2.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-300 transition-colors"
+              >
+                Back to Fingerprint
+              </button>
+
+              <button
+                type="submit"
+                disabled={enrollmentStatus === 'SUBMITTING'}
+                className="inline-flex items-center space-x-2 px-6 py-2.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-emerald-950/40 transition-all hover:scale-[1.02] disabled:opacity-50"
+              >
+                {enrollmentStatus === 'SUBMITTING' ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Enrolling Credentials...</span>
+                  </>
+                ) : (
+                  <>
+                    <ShieldCheck className="w-4 h-4" />
+                    <span>Complete Multi-Authenticator Registration</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+          </form>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* STEP 3: ENROLLMENT SUCCESS & DIRECT VAULT ACCESS                          */}
+      {/* ========================================================================= */}
+      {wizardStep === 3 && (
+        <div className="pro-card p-8 border border-emerald-800/80 bg-[#0e120e] rounded-2xl text-center space-y-6 max-w-2xl mx-auto shadow-2xl">
+          <div className="w-16 h-16 rounded-2xl bg-emerald-950 border border-emerald-700/80 mx-auto flex items-center justify-center text-emerald-400 shadow-inner">
+            <ShieldCheck className="w-10 h-10 text-emerald-400" />
           </div>
 
-          {/* Scientific Disclaimer (Requirement 7) */}
-          <div className="p-3.5 rounded-lg bg-amber-950/20 border border-amber-900/50 text-[11px] font-mono text-amber-300/90 space-y-1.5">
-            <div className="font-semibold uppercase text-[10px] text-amber-400 flex items-center space-x-1.5">
-              <span>Scientific Biometric Protocol Note (Requirement 7)</span>
-            </div>
-            <p className="leading-relaxed text-zinc-400">
-              Raw HW-827 Pulse Sensor waveform enrollment stores raw 10-bit analog telemetry into the trusted database. Two-person cross-identification or 1:N biometric recognition is not claimed until independent cross-session matching algorithms are systematically evaluated across separate recordings.
+          <div>
+            <span className="text-[10px] font-mono uppercase px-2.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800 font-bold">
+              Multi-Authenticator Enrollment Completed
+            </span>
+            <h2 className="text-2xl font-bold text-white tracking-tight mt-2">
+              User Credential Successfully Activated
+            </h2>
+            <p className="text-xs text-zinc-400 max-w-md mx-auto mt-2">
+              Operator <strong className="text-emerald-300">{enrolledUser?.fullName}</strong> is now configured with two-factor biometric fingerprint and salted vault PIN protection.
             </p>
           </div>
 
-          {/* Security Information Footnote */}
-          <div className="p-3 rounded-lg bg-zinc-950 border border-zinc-800/80 text-[11px] font-mono text-zinc-500 space-y-1">
-            <div className="text-zinc-400 font-semibold uppercase text-[10px]">Security Architecture</div>
-            <div>â€¢ Identity is verified via cryptographic token; client-supplied user IDs are never trusted blindly.</div>
-            <div>â€¢ Sensitive raw biometric arrays are revoked from public client access.</div>
-            <div>â€¢ Supabase service-role secret keys are confined strictly to trusted backend operations.</div>
+          {/* Credential Card */}
+          <div className="p-4 rounded-xl border border-zinc-800 bg-black/60 text-left space-y-2 text-xs font-mono">
+            <div className="flex justify-between border-b border-zinc-800/80 pb-2">
+              <span className="text-zinc-500">Operator ID:</span>
+              <span className="text-zinc-200">{enrolledUser?.userId}</span>
+            </div>
+            <div className="flex justify-between border-b border-zinc-800/80 pb-2">
+              <span className="text-zinc-500">Factor 1 (Biometric):</span>
+              <span className="text-cyan-400 font-semibold">HW-827 20-Point Waveform Enrolled</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-zinc-500">Factor 2 (PIN):</span>
+              <span className="text-amber-400 font-semibold">Salted Scrypt Hash Configured</span>
+            </div>
+          </div>
+
+          {/* Action CTAs */}
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+            <button
+              onClick={onNavigateToAuth}
+              className="w-full sm:w-auto inline-flex items-center justify-center space-x-2 px-6 py-3 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-xs uppercase tracking-wider shadow-lg shadow-cyan-950/40 transition-all hover:scale-[1.02]"
+            >
+              <FolderLock className="w-4 h-4" />
+              <span>Open Vault / Folder with 2FA</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+
+            <button
+              onClick={() => {
+                setWizardStep(1);
+                setEnrolledUser(null);
+                setCapturedTemplate(null);
+              }}
+              className="w-full sm:w-auto px-5 py-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-300 transition-colors"
+            >
+              Enroll Another Operator
+            </button>
           </div>
 
         </div>
-
-      </div>
+      )}
 
     </div>
   );
 }
-
