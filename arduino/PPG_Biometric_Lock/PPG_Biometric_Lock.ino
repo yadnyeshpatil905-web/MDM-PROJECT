@@ -4,7 +4,7 @@
 #include <EEPROM.h>
 
 // ================= PIN CONFIGURATION =================
-// Heart Sensor (Pulse Sensor) connected to Analog Pin A0 (10-bit ADC: 0-1023)
+// HW-827 Optical Heartbeat / Pulse Sensor connected to Analog Pin A0 (10-bit ADC: 0-1023)
 #define PPG_PIN     A0
 #define SERVO_PIN   9
 #define BUZZER_PIN  8

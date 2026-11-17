@@ -125,7 +125,7 @@ export default function LockStatusCard({
 
           <div className="flex items-center space-x-1.5">
             <span className="text-zinc-500">PPG:</span>
-            <span className="text-zinc-300">Pulse Sensor (A0)</span>
+            <span className="text-zinc-300">HW-827 (A0)</span>
           </div>
         </div>
 

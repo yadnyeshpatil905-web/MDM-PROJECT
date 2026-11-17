@@ -22,11 +22,11 @@ function generateSamplePayload(count = 100, rate = 100) {
     ir_samples: [...pulse_samples],
     sample_rate: rate,
     sample_count: count,
-    device_info: 'Heart Sensor (Pulse Sensor) Test Device'
+    device_info: 'HW-827 Pulse Sensor Test Device'
   };
 }
 
-test('API Integration Tests for Heart Sensor (Pulse Sensor) Raw Waveform & Security', async (t) => {
+test('API Integration Tests for HW-827 Pulse Sensor Raw Waveform & Security', async (t) => {
   // Start server on ephemeral port for integration testing
   await new Promise((resolve) => {
     server = app.listen(0, () => {
@@ -155,7 +155,7 @@ test('API Integration Tests for Heart Sensor (Pulse Sensor) Raw Waveform & Secur
     assert.ok(body.limitations.length > 0);
   });
 
-  await t.test('POST /api/auth/register supports raw Heart Sensor (Pulse Sensor) enrollment alongside template', async () => {
+  await t.test('POST /api/auth/register supports raw HW-827 Pulse Sensor enrollment alongside template', async () => {
     const newEmail = `operator_${Date.now()}@internal.org`;
     const res = await fetch(`${baseUrl}/api/auth/register`, {
       method: 'POST',

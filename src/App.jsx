@@ -29,7 +29,7 @@ export default function App() {
     isRunning: false,
     mode: 'AUTHENTICATION',
     state: SYSTEM_STATES.LOCKED,
-    statusMessage: 'SYSTEM READY • SELECT OPERATOR OR PLACE FINGER ON HEART SENSOR (PULSE SENSOR)',
+    statusMessage: 'SYSTEM READY • SELECT OPERATOR OR PLACE FINGER ON HW-827 PULSE SENSOR',
     lcdLine1: 'ACCESS LOCKED',
     lcdLine2: 'PLACE FINGER',
     bpm: 0,
@@ -166,7 +166,7 @@ export default function App() {
               ir_samples: rawSamples,
               sample_rate: 100,
               sample_count: rawSamples.length,
-              device_info: 'Heart Sensor (Pulse Sensor - Analog Pin A0)'
+              device_info: 'HW-827 Pulse Sensor (Analog Pin A0)'
             };
             updates.isRunning = false;
           }
@@ -207,7 +207,7 @@ export default function App() {
           setEngineState(prev => ({
             ...prev,
             state: SYSTEM_STATES.LOCKED,
-            statusMessage: 'ARDUINO CONNECTED • READY FOR HEART SENSOR (PULSE SENSOR) READINGS',
+            statusMessage: 'ARDUINO CONNECTED • READY FOR HW-827 PULSE SENSOR READINGS',
             lcdLine1: 'ACCESS LOCKED',
             lcdLine2: 'PLACE FINGER',
             signalQuality: 'READY',
@@ -267,7 +267,7 @@ export default function App() {
         isRunning: true,
         statusMessage: currentMode === 'ENROLLMENT'
           ? 'HARDWARE ACTIVE • ENROLLMENT MODE: PLACE FINGER ON SENSOR'
-          : 'HARDWARE ACTIVE • PLACE FINGER ON HEART SENSOR (PULSE SENSOR)'
+          : 'HARDWARE ACTIVE • PLACE FINGER ON HW-827 PULSE SENSOR'
       }));
       if (currentMode === 'ENROLLMENT') {
         handleSendSerial("MODE:ENROLL");

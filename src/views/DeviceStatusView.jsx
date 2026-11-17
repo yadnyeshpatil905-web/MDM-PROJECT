@@ -46,11 +46,11 @@ export default function DeviceStatusView({ engineState = {}, isHardwareConnected
   const hardwareNodes = [
     {
       id: 'hw827',
-      name: 'Heart Sensor (Pulse Sensor)',
+      name: 'HW-827 Pulse Sensor',
       pin: 'Analog Pin A0 (10-Bit ADC, 100Hz Rate)',
       status: isHardwareConnected ? 'Hardware Active' : 'Simulated / Standby',
       icon: Activity,
-      desc: 'Optical heart/pulse sensor capturing photoplethysmogram microvoltages from fingertip capillary blood volume'
+      desc: 'HW-827 optical heartbeat/pulse sensor capturing photoplethysmogram microvoltages from fingertip capillary blood volume'
     },
     {
       id: 'arduino',
@@ -118,7 +118,7 @@ export default function DeviceStatusView({ engineState = {}, isHardwareConnected
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-center text-center font-mono text-xs">
           <div className="p-3 rounded bg-[#0a0a0c] border border-zinc-800">
             <Activity className="w-5 h-5 text-cyan-400 mx-auto mb-1" />
-            <div className="font-semibold text-white">Pulse Sensor</div>
+            <div className="font-semibold text-white">HW-827 Sensor</div>
             <div className="text-[10px] text-zinc-500">Pin A0 (Analog)</div>
           </div>
 

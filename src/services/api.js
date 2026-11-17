@@ -78,7 +78,7 @@ export const api = {
     body: JSON.stringify(payload)
   }),
 
-  // Heart Sensor (Pulse Sensor) Raw Waveform Storage & Enrollment (public.biometric_recordings)
+  // HW-827 Pulse Sensor Raw Waveform Storage & Enrollment (public.biometric_recordings)
   enrollRawRecording: (payload, token = null) => request('/api/biometrics/recordings/enroll', {
     method: 'POST',
     body: JSON.stringify(payload),

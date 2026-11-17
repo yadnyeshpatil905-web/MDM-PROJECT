@@ -6,8 +6,8 @@ import { authService } from '../server/services/authService.js';
 import { repository, InMemoryRepositoryManager } from '../server/repositories/index.js';
 import { RAW_RECORDING_CONFIG, DEFAULT_CONFIG } from '../server/models/constants.js';
 
-// Helper to generate synthetic Heart Sensor (Pulse Sensor) waveform samples (10-bit ADC, Pin A0)
-function generateSyntheticPulseSensor(count = 100, rate = 100) {
+// Helper to generate synthetic HW-827 Pulse Sensor waveform samples (10-bit ADC, Pin A0)
+function generateSyntheticHW827(count = 100, rate = 100) {
   const pulse_samples = [];
   for (let i = 0; i < count; i++) {
     const phase = (i % 20) / 20;
@@ -22,13 +22,13 @@ function generateSyntheticPulseSensor(count = 100, rate = 100) {
     ir_samples: [...pulse_samples],
     sample_rate: rate,
     sample_count: count,
-    device_info: 'Heart Sensor (Pulse Sensor) Test'
+    device_info: 'HW-827 Pulse Sensor Test'
   };
 }
 
-test('1. Heart Sensor (Pulse Sensor) Raw Waveform Validation', async (t) => {
-  await t.test('accepts valid Heart Sensor (Pulse Sensor) recording', () => {
-    const sample = generateSyntheticPulseSensor(100, 100);
+test('1. HW-827 Pulse Sensor Raw Waveform Validation', async (t) => {
+  await t.test('accepts valid HW-827 Pulse Sensor recording', () => {
+    const sample = generateSyntheticHW827(100, 100);
     const result = BiometricService.validateRawRecording(sample);
     assert.equal(result.valid, true);
     assert.equal(result.stats.sampleCount, 100);
@@ -37,7 +37,7 @@ test('1. Heart Sensor (Pulse Sensor) Raw Waveform Validation', async (t) => {
   });
 
   await t.test('rejects mismatched pulse array length', () => {
-    const sample = generateSyntheticPulseSensor(100, 100);
+    const sample = generateSyntheticHW827(100, 100);
     sample.pulse_samples.pop(); // length 99 vs 100
     const result = BiometricService.validateRawRecording(sample);
     assert.equal(result.valid, false);
@@ -45,7 +45,7 @@ test('1. Heart Sensor (Pulse Sensor) Raw Waveform Validation', async (t) => {
   });
 
   await t.test('rejects sample count below minimum limit (50 samples)', () => {
-    const sample = generateSyntheticPulseSensor(30, 100);
+    const sample = generateSyntheticHW827(30, 100);
     const result = BiometricService.validateRawRecording(sample);
     assert.equal(result.valid, false);
     assert.match(result.error, /between 50 and 10000/i);
@@ -62,7 +62,7 @@ test('1. Heart Sensor (Pulse Sensor) Raw Waveform Validation', async (t) => {
   });
 
   await t.test('rejects out-of-range 10-bit ADC samples (> 1023 or < 0)', () => {
-    const sample = generateSyntheticPulseSensor(100, 100);
+    const sample = generateSyntheticHW827(100, 100);
     sample.pulse_samples[10] = 1200; // exceeds 10-bit ADC range
     const result = BiometricService.validateRawRecording(sample);
     assert.equal(result.valid, false);
@@ -84,7 +84,7 @@ test('1. Heart Sensor (Pulse Sensor) Raw Waveform Validation', async (t) => {
 test('2. Public.biometric_recordings Repository Persistence', async (t) => {
   const repo = new InMemoryRepositoryManager();
   const testUserId = 'u0000000-0000-0000-0000-000000000099';
-  const sample = generateSyntheticPulseSensor(100, 100);
+  const sample = generateSyntheticHW827(100, 100);
 
   await t.test('saves validated pulse arrays to repository', async () => {
     const created = await repo.createBiometricRecording({
@@ -95,7 +95,7 @@ test('2. Public.biometric_recordings Repository Persistence', async (t) => {
       ir_samples: sample.ir_samples,
       sample_rate: sample.sample_rate,
       sample_count: sample.sample_count,
-      device_info: 'Heart Sensor (Pulse Sensor) Hardware'
+      device_info: 'HW-827 Pulse Sensor Hardware'
     });
 
     assert.ok(created.id);
@@ -138,7 +138,7 @@ test('3. Security & Authenticated Identity Verification (Requirement 5 & 6)', as
   });
 
   await t.test('enrollRawBiometricRecording requires valid registered user', async () => {
-    const sample = generateSyntheticPulseSensor(100, 100);
+    const sample = generateSyntheticHW827(100, 100);
     await assert.rejects(
       async () => {
         await authService.enrollRawBiometricRecording({
@@ -169,8 +169,8 @@ test('3. Security & Authenticated Identity Verification (Requirement 5 & 6)', as
 });
 
 test('4. Requirement 7: Enrollment First & Identification Benchmark', async (t) => {
-  const recordingA = generateSyntheticPulseSensor(100, 100);
-  const recordingB = generateSyntheticPulseSensor(100, 100);
+  const recordingA = generateSyntheticHW827(100, 100);
+  const recordingB = generateSyntheticHW827(100, 100);
 
   await t.test('evaluates correlation on separate recordings and issues scientific limitation notice', () => {
     const evaluation = BiometricService.evaluateRecordingPair(recordingA, recordingB);

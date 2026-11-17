@@ -1,4 +1,4 @@
--- Smart Credential Lock: Heart Sensor (Pulse Sensor) Raw Waveform Storage Schema
+-- Smart Credential Lock: HW-827 Pulse Sensor Raw Waveform Storage Schema
 -- Migration: 20261029000000_add_biometric_recordings.sql
 -- Preserves existing schema and adds public.biometric_recordings non-destructively.
 
@@ -11,7 +11,7 @@ create table if not exists public.biometric_recordings (
     ir_samples integer[],
     sample_rate integer not null check (sample_rate >= 10 and sample_rate <= 1000),
     sample_count integer not null check (sample_count >= 50 and sample_count <= 10000),
-    device_info text default 'Heart Sensor (Pulse Sensor)',
+    device_info text default 'HW-827 Pulse Sensor',
     recorded_at timestamptz not null default now()
 );
 

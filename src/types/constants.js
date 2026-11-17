@@ -81,10 +81,10 @@ export const RAW_RECORDING_CONFIG = {
   MAX_SAMPLES: 10000,             // Maximum 10,000 samples (~100s at 100Hz) to prevent DoS
   MIN_SAMPLE_RATE: 10,            // Min 10 Hz
   MAX_SAMPLE_RATE: 1000,          // Max 1000 Hz
-  DEFAULT_SAMPLE_RATE: 100,       // Standard Heart Sensor (Pulse Sensor) default rate (100 Hz)
-  ADC_MAX_VALUE: 1023,            // Heart Sensor (Pulse Sensor) 10-bit ADC max (2^10 - 1) on Pin A0
+  DEFAULT_SAMPLE_RATE: 100,       // Standard HW-827 Pulse Sensor default rate (100 Hz)
+  ADC_MAX_VALUE: 1023,            // HW-827 Pulse Sensor 10-bit ADC max (2^10 - 1) on Pin A0
   ADC_MIN_VALUE: 0,
   MIN_DYNAMIC_RANGE: 15,          // Min peak-to-peak amplitude to verify active pulsation
-  SENSOR_TYPE: 'Heart Sensor (Pulse Sensor)'
+  SENSOR_TYPE: 'HW-827 Pulse Sensor'
 };
 

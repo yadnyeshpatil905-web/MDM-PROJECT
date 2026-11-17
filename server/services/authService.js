@@ -80,7 +80,7 @@ export class AuthService {
 
   /**
    * User Registration & Biometric Enrollment Flow
-   * Supports both 20-point morphology template and raw Heart Sensor (Pulse Sensor) waveform.
+   * Supports both 20-point morphology template and raw HW-827 Pulse Sensor waveform.
    */
   async registerUser({ fullName, email, password, pin, pinConfirm, templateData, rawRecording = null }) {
     // 1. Validate Full Name
@@ -124,12 +124,12 @@ export class AuthService {
       throw new Error(`Biometric enrollment failed: ${templateValidation.error}`);
     }
 
-    // 5b. Validate optional raw Heart Sensor (Pulse Sensor) biometric recording if supplied
+    // 5b. Validate optional raw HW-827 Pulse Sensor biometric recording if supplied
     let rawValidationStats = null;
     if (rawRecording) {
       const valRaw = BiometricService.validateRawRecording(rawRecording);
       if (!valRaw.valid) {
-        throw new Error(`Raw Heart Sensor (Pulse Sensor) waveform enrollment failed: ${valRaw.error}`);
+        throw new Error(`Raw HW-827 Pulse Sensor waveform enrollment failed: ${valRaw.error}`);
       }
       rawValidationStats = valRaw.stats;
     }
@@ -159,7 +159,7 @@ export class AuthService {
       status: 'active'
     });
 
-    // 9b. Store Raw Heart Sensor (Pulse Sensor) Biometric Recording if provided
+    // 9b. Store Raw HW-827 Pulse Sensor Biometric Recording if provided
     let rawRecordingId = null;
     if (rawRecording) {
       const savedRecording = await repository.createBiometricRecording({
@@ -170,7 +170,7 @@ export class AuthService {
         ir_samples: rawRecording.ir_samples || rawRecording.pulse_samples,
         sample_rate: rawRecording.sample_rate,
         sample_count: rawRecording.sample_count,
-        device_info: rawRecording.device_info || 'Heart Sensor (Pulse Sensor)'
+        device_info: rawRecording.device_info || 'HW-827 Pulse Sensor'
       });
       rawRecordingId = savedRecording.id;
     }
@@ -182,7 +182,7 @@ export class AuthService {
       pin_result: PIN_RESULTS.NOT_REQUIRED,
       final_result: FINAL_RESULTS.SUCCESS,
       failure_reason: rawRecording 
-        ? 'Initial Registration, Biometric Template & Raw Heart Sensor (Pulse Sensor) Waveform Enrolled'
+        ? 'Initial Registration, Biometric Template & Raw HW-827 Pulse Sensor Waveform Enrolled'
         : 'Initial Registration & Biometric Enrollment Completed'
     });
 
@@ -203,7 +203,7 @@ export class AuthService {
   }
 
   /**
-   * Enrolls a raw Heart Sensor (Pulse Sensor) PPG waveform recording for an authenticated user.
+   * Enrolls a raw HW-827 Pulse Sensor PPG waveform recording for an authenticated user.
    * Requires verified identity from trusted middleware.
    */
   async enrollRawBiometricRecording({ userId, rawRecording }) {
@@ -229,7 +229,7 @@ export class AuthService {
       ir_samples: rawRecording.ir_samples || rawRecording.pulse_samples,
       sample_rate: rawRecording.sample_rate,
       sample_count: rawRecording.sample_count,
-      device_info: rawRecording.device_info || 'Heart Sensor (Pulse Sensor)'
+      device_info: rawRecording.device_info || 'HW-827 Pulse Sensor'
     });
 
     await repository.createAuthAttempt({
@@ -237,7 +237,7 @@ export class AuthService {
       biometric_result: BIOMETRIC_RESULTS.SUCCESS,
       pin_result: PIN_RESULTS.NOT_REQUIRED,
       final_result: FINAL_RESULTS.SUCCESS,
-      failure_reason: `Raw Heart Sensor (Pulse Sensor) PPG Waveform Enrolled (${rawRecording.sample_count} samples @ ${rawRecording.sample_rate}Hz)`
+      failure_reason: `Raw HW-827 Pulse Sensor PPG Waveform Enrolled (${rawRecording.sample_count} samples @ ${rawRecording.sample_rate}Hz)`
     });
 
     return {
@@ -246,7 +246,7 @@ export class AuthService {
       userId,
       stats: validation.stats,
       recordedAt: recording.recorded_at,
-      message: 'Raw Heart Sensor (Pulse Sensor) PPG waveform recording successfully enrolled and stored in public.biometric_recordings.'
+      message: 'Raw HW-827 Pulse Sensor PPG waveform recording successfully enrolled and stored in public.biometric_recordings.'
     };
   }
 

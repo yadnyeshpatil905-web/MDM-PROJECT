@@ -251,7 +251,7 @@ export class SupabaseRepositoryManager {
   }
 
   // --- Biometric Recordings (public.biometric_recordings) ---
-  async createBiometricRecording({ id, user_id, pulse_samples, raw_samples, red_samples, ir_samples, sample_rate, sample_count, device_info = 'Heart Sensor (Pulse Sensor)', recorded_at }) {
+  async createBiometricRecording({ id, user_id, pulse_samples, raw_samples, red_samples, ir_samples, sample_rate, sample_count, device_info = 'HW-827 Pulse Sensor', recorded_at }) {
     const client = this.getClient();
     const primary = pulse_samples || raw_samples || red_samples || [];
     const { data, error } = await client
@@ -263,7 +263,7 @@ export class SupabaseRepositoryManager {
         ir_samples: ir_samples || primary,
         sample_rate: Number(sample_rate),
         sample_count: Number(sample_count),
-        device_info: device_info || 'Heart Sensor (Pulse Sensor)',
+        device_info: device_info || 'HW-827 Pulse Sensor',
         recorded_at: recorded_at || new Date().toISOString()
       })
       .select()

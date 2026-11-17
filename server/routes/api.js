@@ -35,7 +35,7 @@ router.get('/users', async (req, res) => {
 
 /**
  * Registration & Biometric Enrollment
- * Supports 20-point morphology template and optional raw Heart Sensor (Pulse Sensor) waveform enrollment.
+ * Supports 20-point morphology template and optional raw HW-827 Pulse Sensor waveform enrollment.
  */
 router.post('/auth/register', async (req, res) => {
   try {
@@ -180,7 +180,7 @@ router.get('/device/status', (req, res) => {
   const deviceState = deviceService.getDeviceState();
   res.json({
     arduino: deviceState.connectionStatus,
-    sensor: 'Heart Sensor (Pulse Sensor - Analog Pin A0)',
+    sensor: 'HW-827 Pulse Sensor (Analog Pin A0)',
     servo: deviceState.servoStatus,
     servoAngle: deviceState.servoAngle,
     baudRate: deviceState.baudRate,
@@ -190,13 +190,13 @@ router.get('/device/status', (req, res) => {
 
 /**
  * ==============================================================================
- * HEART SENSOR (PULSE SENSOR) RAW BIOMETRIC WAVEFORM ENROLLMENT & STORAGE ENDPOINTS
+ * HW-827 PULSE SENSOR RAW BIOMETRIC WAVEFORM ENROLLMENT & STORAGE ENDPOINTS
  * Integrates directly with public.biometric_recordings table.
  * ==============================================================================
  */
 
 /**
- * Heart Sensor (Pulse Sensor) Raw Waveform Enrollment
+ * HW-827 Pulse Sensor Raw Waveform Enrollment
  * Protected by requireAuth: user ID is cryptographically verified from the token,
  * NEVER trusted directly from frontend body payload.
  */

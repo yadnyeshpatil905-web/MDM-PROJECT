@@ -92,7 +92,7 @@ export class InMemoryRepositoryManager {
       created_at: new Date(Date.now() - 3600000).toISOString()
     });
 
-    // Seed initial Heart Sensor (Pulse Sensor) raw biometric recording
+    // Seed initial HW-827 Pulse Sensor raw biometric recording
     const demoRecordingId = 'r0000000-0000-0000-0000-000000000001';
     const sampleCount = 100;
     const pulseSamples = [];
@@ -112,7 +112,7 @@ export class InMemoryRepositoryManager {
       ir_samples: pulseSamples,
       sample_rate: 100,
       sample_count: sampleCount,
-      device_info: 'Heart Sensor (Pulse Sensor)',
+      device_info: 'HW-827 Pulse Sensor',
       recorded_at: now
     });
   }
@@ -294,7 +294,7 @@ export class InMemoryRepositoryManager {
   }
 
   // --- Biometric Recording Repository Methods ---
-  async createBiometricRecording({ id, user_id, pulse_samples, raw_samples, red_samples, ir_samples, sample_rate, sample_count, device_info = 'Heart Sensor (Pulse Sensor)', recorded_at }) {
+  async createBiometricRecording({ id, user_id, pulse_samples, raw_samples, red_samples, ir_samples, sample_rate, sample_count, device_info = 'HW-827 Pulse Sensor', recorded_at }) {
     const recordingId = id || CryptoService.generateId();
     const primary = pulse_samples || raw_samples || red_samples || [];
     const recording = {
@@ -306,7 +306,7 @@ export class InMemoryRepositoryManager {
       ir_samples: ir_samples ? [...ir_samples] : [...primary],
       sample_rate: Number(sample_rate),
       sample_count: Number(sample_count),
-      device_info: device_info || 'Heart Sensor (Pulse Sensor)',
+      device_info: device_info || 'HW-827 Pulse Sensor',
       recorded_at: recorded_at || new Date().toISOString()
     };
     this.biometricRecordings.set(recordingId, recording);

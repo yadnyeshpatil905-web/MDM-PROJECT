@@ -5,7 +5,7 @@ import { DEFAULT_CONFIG, RAW_RECORDING_CONFIG } from '../models/constants.js';
  * 
  * Supports:
  * 1. 20-point normalized systolic/diastolic template validation & comparison.
- * 2. Heart Sensor (Pulse Sensor) raw waveform enrollment validation,
+ * 2. HW-827 Pulse Sensor raw waveform enrollment validation,
  *    physiological bounds checking, and cross-session evaluation benchmarks.
  */
 export class BiometricService {
@@ -71,7 +71,7 @@ export class BiometricService {
   }
 
   /**
-   * Validates raw Heart Sensor (Pulse Sensor) biometric recordings.
+   * Validates raw HW-827 Pulse Sensor biometric recordings.
    * Enforces 10-bit ADC ranges [0, 1023] (or configured max), sample rate constraints,
    * recording-size bounds, and minimum physiological pulsation dynamic range.
    */
@@ -105,7 +105,7 @@ export class BiometricService {
       };
     }
 
-    // Determine signal channels: prioritize single-channel Heart Sensor (Pulse Sensor)
+    // Determine signal channels: prioritize single-channel HW-827 Pulse Sensor
     const primarySamples = (pulse_samples && Array.isArray(pulse_samples)) 
       ? pulse_samples 
       : (raw_samples && Array.isArray(raw_samples)) 
@@ -117,7 +117,7 @@ export class BiometricService {
     if (!primarySamples && !hasDualChannel) {
       return {
         valid: false,
-        error: 'Heart Sensor recording must contain pulse_samples (or raw_samples) array.'
+        error: 'HW-827 Pulse Sensor recording must contain pulse_samples (or raw_samples) array.'
       };
     }
 
@@ -306,13 +306,13 @@ export class BiometricService {
    */
   static getBiometricLimitations() {
     return {
-      sensorTypes: ['Heart Sensor / Pulse Sensor (Single-channel 10-bit ADC Pin A0)'],
-      featureVector: 'Raw Heart Sensor (Pulse Sensor) Waveform (10-bit ADC) + 20-point normalized pulse morphology',
+      sensorTypes: ['HW-827 Heartbeat / Pulse Sensor (Single-channel 10-bit ADC Pin A0)'],
+      featureVector: 'Raw HW-827 Pulse Sensor Waveform (10-bit ADC) + 20-point normalized pulse morphology',
       limitations: [
-        'Capillary blood volume curve varies with finger contact pressure, posture, and autonomic tone on the Heart Sensor.',
+        'Capillary blood volume curve varies with finger contact pressure, posture, and autonomic tone on the HW-827 Pulse Sensor.',
         'Ambient temperature and autonomic nervous system state (stress/vasoconstriction) shift dicrotic notch timing.',
         'Heart rate (BPM) values alone are physiological vital signs, NOT unique cryptographic identifiers.',
-        'Raw Heart Sensor (Pulse Sensor) waveforms require enrollment collection first; two-person identification must not be claimed without separate dataset benchmarking.',
+        'Raw HW-827 Pulse Sensor waveforms require enrollment collection first; two-person identification must not be claimed without separate dataset benchmarking.',
         'Morphology matching provides a physical presence verification factor, which must be paired with Step 2 (Vault PIN) for secure access control.'
       ]
     };

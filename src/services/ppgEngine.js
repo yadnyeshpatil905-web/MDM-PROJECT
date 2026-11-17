@@ -119,7 +119,7 @@ export class PpgSimulator {
       if (!this.isRunning) return;
       this.state = 'CAPTURING';
       this.statusMessage = isEnroll 
-        ? 'RECORDING HEART SENSOR (PULSE SENSOR) MORPHOLOGY...' 
+        ? 'RECORDING HW-827 PULSE SENSOR MORPHOLOGY...' 
         : 'CAPTURING PPG BIOMETRIC WAVEFORM...';
       this.captureStartTime = Date.now();
       
@@ -202,7 +202,7 @@ export class PpgSimulator {
       const baseline = 512 + Math.sin(sampleIdx * 0.02) * 15;
       const raw = Math.max(0, Math.min(1023, Math.round(baseline + ac)));
 
-      // Synthesize realistic Heart Sensor (Pulse Sensor) 10-bit analog optical samples
+      // Synthesize realistic HW-827 Pulse Sensor 10-bit analog optical samples
       this.latestRaw = raw;
       this.latestAc = Math.round(ac);
       this.latestRed = raw;
@@ -260,7 +260,7 @@ export class PpgSimulator {
       this.rawIrBuffer.push(fallbackVal);
     }
 
-    // Package validated raw Heart Sensor (Pulse Sensor) biometric recording
+    // Package validated raw HW-827 Pulse Sensor biometric recording
     this.rawRecording = {
       pulse_samples: [...this.rawPulseBuffer],
       raw_samples: [...this.rawPulseBuffer],
@@ -268,7 +268,7 @@ export class PpgSimulator {
       ir_samples: [...this.rawPulseBuffer],
       sample_rate: 100,
       sample_count: this.rawPulseBuffer.length,
-      device_info: 'Heart Sensor (Pulse Sensor - Analog Pin A0)'
+      device_info: 'HW-827 Pulse Sensor (Analog Pin A0)'
     };
 
     // Calculate final 20-point morphology template
@@ -281,7 +281,7 @@ export class PpgSimulator {
     if (this.mode === 'ENROLLMENT') {
       // Rapid enrollment completion (no false auth steps)
       this.state = 'ACCESS_GRANTED';
-      this.statusMessage = 'HEART SENSOR (PULSE SENSOR) TEMPLATE ACQUIRED • READY TO REGISTER';
+      this.statusMessage = 'HW-827 PULSE SENSOR TEMPLATE ACQUIRED • READY TO REGISTER';
       this.lcdLine1 = 'ENROLLMENT';
       this.lcdLine2 = 'SUCCESS';
       this.evaluateResult();

@@ -74,7 +74,7 @@ export default function EnrollmentView({
     setCapturedRawRecording(null);
     onStartEnrollment();
     setEnrollmentStatus('ENROLLING_SENSOR');
-    setStatusMessage('Acquiring clean pulse waves from Heart Sensor (Pulse Sensor on Pin A0)...');
+    setStatusMessage('Acquiring clean pulse waves from HW-827 Pulse Sensor (Pin A0)...');
   };
 
   const handleCancelCapture = () => {
@@ -91,7 +91,7 @@ export default function EnrollmentView({
         setCapturedRawRecording({ ...rawRecording });
       }
       setEnrollmentStatus('IDLE');
-      setStatusMessage('Biometric pulse morphology & Heart Sensor (Pulse Sensor) raw waveforms captured! Complete form to register.');
+      setStatusMessage('Biometric pulse morphology & HW-827 Pulse Sensor raw waveforms captured! Complete form to register.');
     }
   }, [currentTemplate, rawRecording, enrollmentStatus]);
 
@@ -160,7 +160,7 @@ export default function EnrollmentView({
       setEnrollmentStatus('SUCCESS');
       setEnrolledUser(response);
       const rawNotice = response.rawRecordingEnrolled 
-        ? ` • Heart Sensor (Pulse Sensor) waveform (${response.rawValidationStats?.sampleCount || activeRawRecording?.sample_count} samples @ ${response.rawValidationStats?.sampleRate || activeRawRecording?.sample_rate}Hz) committed to public.biometric_recordings`
+        ? ` • HW-827 Pulse Sensor waveform (${response.rawValidationStats?.sampleCount || activeRawRecording?.sample_count} samples @ ${response.rawValidationStats?.sampleRate || activeRawRecording?.sample_rate}Hz) committed to public.biometric_recordings`
         : '';
       setStatusMessage(`User ${response.fullName} registered! UUID: ${response.userId}${rawNotice}`);
       onUserRegistered(response);
@@ -389,7 +389,7 @@ export default function EnrollmentView({
             <div className="p-2.5 rounded bg-[#0a0a0c] border border-zinc-800 flex items-center justify-between font-mono text-xs">
               <div className="flex items-center space-x-2">
                 <ShieldCheck className={`w-3.5 h-3.5 ${activeRawRecording ? 'text-cyan-400' : 'text-zinc-500'}`} />
-                <span className="text-zinc-300">Pulse Sensor Raw Wave:</span>
+                <span className="text-zinc-300">HW-827 Pulse Sensor Raw Wave:</span>
               </div>
               <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded border ${
                 activeRawRecording 
@@ -423,17 +423,17 @@ export default function EnrollmentView({
             height={190}
           />
 
-          {/* Heart Sensor (Pulse Sensor) Raw Waveform Ingestion Card */}
+          {/* HW-827 Pulse Sensor Raw Waveform Ingestion Card */}
           <div className="pro-card p-4 border border-zinc-800 bg-[#101014] space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <ShieldCheck className="w-4 h-4 text-cyan-400" />
                 <h3 className="font-semibold text-xs text-white">
-                  Heart Sensor (Pulse Sensor) Raw PPG Waveform Ingestion (public.biometric_recordings)
+                  HW-827 Pulse Sensor Raw PPG Waveform Ingestion (public.biometric_recordings)
                 </h3>
               </div>
               <span className="text-[10px] font-mono text-zinc-400 bg-zinc-900 px-2 py-0.5 rounded border border-zinc-800">
-                10-Bit ADC • Analog Pin A0
+                HW-827 • 10-Bit ADC • Analog Pin A0
               </span>
             </div>
 
@@ -512,7 +512,7 @@ export default function EnrollmentView({
               <span>Scientific Biometric Protocol Note (Requirement 7)</span>
             </div>
             <p className="leading-relaxed text-zinc-400">
-              Raw Heart Sensor (Pulse Sensor) waveform enrollment stores raw 10-bit analog telemetry into the trusted database. Two-person cross-identification or 1:N biometric recognition is not claimed until independent cross-session matching algorithms are systematically evaluated across separate recordings.
+              Raw HW-827 Pulse Sensor waveform enrollment stores raw 10-bit analog telemetry into the trusted database. Two-person cross-identification or 1:N biometric recognition is not claimed until independent cross-session matching algorithms are systematically evaluated across separate recordings.
             </p>
           </div>
 

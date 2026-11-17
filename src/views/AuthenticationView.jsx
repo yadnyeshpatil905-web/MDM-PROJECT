@@ -505,7 +505,7 @@ export default function AuthenticationView({
                 Step 1 of 2: Biometric Factor
               </div>
               <h2 className="text-xl font-bold text-white mt-0.5">
-                {selectedUser ? `${selectedUser.fullName}'s Biometric Scan` : 'Place Finger on Heart Sensor (Pulse Sensor)'}
+                {selectedUser ? `${selectedUser.fullName}'s Biometric Scan` : 'Place Finger on HW-827 Pulse Sensor'}
               </h2>
               <p className="text-xs font-mono text-zinc-400 mt-1">
                 {stageMessage}

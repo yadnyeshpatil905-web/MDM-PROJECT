@@ -7,7 +7,7 @@ export function parseArduinoSerialLine(line, currentState) {
 
   const updates = { rawLine: trimmed };
 
-  // 1. Raw Telemetry / Real ADC Waveform Stream from Heart Sensor (Pulse Sensor)
+  // 1. Raw Telemetry / Real ADC Waveform Stream from HW-827 Pulse Sensor
   // Matches "RAW:512,AC:24" or "RAW:580" or "AC:32" or "PULSE:512"
   if (trimmed.startsWith('RAW:') || trimmed.startsWith('PPG:') || trimmed.startsWith('PULSE:')) {
     const parts = trimmed.split(',');
@@ -50,7 +50,7 @@ export function parseArduinoSerialLine(line, currentState) {
   // "NO FINGER / NO SIGNAL"
   if (trimmed.includes('NO FINGER') || trimmed.includes('NO SIGNAL')) {
     updates.state = 'IDLE';
-    updates.statusMessage = 'WAITING FOR FINGER • PLACE FINGER ON HEART SENSOR (PULSE SENSOR)';
+    updates.statusMessage = 'WAITING FOR FINGER • PLACE FINGER ON HW-827 PULSE SENSOR';
     updates.lcdLine1 = 'ACCESS LOCKED';
     updates.lcdLine2 = 'PLACE FINGER';
     updates.signalQuality = 'WEAK';
@@ -59,7 +59,7 @@ export function parseArduinoSerialLine(line, currentState) {
   // "PPG SIGNAL DETECTED" or "CAPTURING..."
   if (trimmed.includes('PPG SIGNAL DETECTED') || trimmed.includes('CAPTURING...')) {
     updates.state = 'CAPTURING';
-    updates.statusMessage = 'FINGER DETECTED ON HEART SENSOR • CAPTURING PPG SIGNAL...';
+    updates.statusMessage = 'FINGER DETECTED ON HW-827 SENSOR • CAPTURING PPG SIGNAL...';
     updates.lcdLine1 = 'CAPTURING PPG';
     updates.lcdLine2 = 'KEEP STILL';
     updates.signalQuality = 'GOOD';
@@ -181,7 +181,7 @@ export function parseArduinoSerialLine(line, currentState) {
   // 9. Enrollment Mode
   if (trimmed.includes('BIOMETRIC ENROLLMENT') || trimmed.includes('ENROLL MODE') || trimmed.includes('MODE:ENROLL_ACTIVE') || trimmed.includes('SYSTEM IN ENROLL MODE')) {
     updates.mode = 'ENROLLMENT';
-    updates.statusMessage = 'ENROLLMENT MODE • PLACE FINGER ON HEART SENSOR (PULSE SENSOR)';
+    updates.statusMessage = 'ENROLLMENT MODE • PLACE FINGER ON HW-827 PULSE SENSOR';
     updates.lcdLine1 = 'BIOMETRIC';
     updates.lcdLine2 = 'PLACE FINGER';
   }

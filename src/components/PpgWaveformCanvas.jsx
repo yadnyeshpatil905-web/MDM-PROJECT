@@ -73,7 +73,7 @@ export default function PpgWaveformCanvas({
     const pointsCount = waveBuffer.length;
     const stepX = width / (pointsCount - 1);
 
-    // Dynamic amplitude scaling for Heart Sensor (Pulse Sensor) 10-bit analog readings
+    // Dynamic amplitude scaling for HW-827 Pulse Sensor 10-bit analog readings
     let maxAc = 0;
     waveBuffer.forEach(pt => {
       const a = Math.abs(pt.ac !== undefined ? pt.ac : ((pt.val || 512) - 512));
@@ -141,7 +141,7 @@ export default function PpgWaveformCanvas({
 
       {/* Minimal Voltage Scale & Status Overlay */}
       <div className="absolute left-2.5 top-2 text-[9px] font-mono text-zinc-500 select-none flex items-center space-x-2">
-        <span>10-Bit ADC (0–1023 LSB)</span>
+        <span>HW-827 Pulse Sensor • 10-Bit ADC (0–1023)</span>
       </div>
       <div className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[9px] font-mono text-zinc-600 select-none">
         0V Baseline (512 LSB)

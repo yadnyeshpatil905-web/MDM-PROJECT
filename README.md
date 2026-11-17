@@ -7,7 +7,7 @@ A modern, high-precision biometric access control system combining Arduino UNO, 
 ## ðŸš€ Key Features
 
 - **Hardware Biometric Pipeline**:
-  - Optical pulse acquisition via **Heart Sensor (Pulse Sensor)** analog sensor (Pin A0).
+  - Optical pulse acquisition via **HW-827 Pulse Sensor** analog sensor (Pin A0).
   - Dynamic IIR baseline tracking filter (`98% * baseline + 2% * raw`).
   - Inter-beat interval (IBI) validation (400ms â€“ 1333ms, 45 â€“ 150 BPM).
   - 20-point normalized morphological waveform template generation.
@@ -32,7 +32,7 @@ A modern, high-precision biometric access control system combining Arduino UNO, 
 
 | Hardware Component | Arduino UNO Pin | Interface / Protocol |
 |--------------------|-----------------|----------------------|
-| **Heart Sensor (Pulse Sensor)** | Pin `A0` | Analog ADC (10-bit) |
+| **HW-827 Pulse Sensor** | Pin `A0` | Analog ADC (10-bit) |
 | **SG90 Servo Motor** | Pin `9` | PWM Actuator (0Â° Locked / 90Â° Unlocked) |
 | **Piezo Buzzer** | Pin `8` | Digital `tone()` Output |
 | **Status LED** | Pin `7` | Digital Output (with 330Î© resistor) |
@@ -102,4 +102,4 @@ Open [http://localhost:5173/](http://localhost:5173/) (or the port displayed in 
 ### 3. Connect & Authenticate
 1. Click **Connect Arduino USB** in the top navigation bar.
 2. Select your **Arduino Uno** USB port from the browser prompt.
-3. Place your finger on the **Heart Sensor (Pulse Sensor)** to view your real-time cardiovascular pulse waveform and authenticate!
+3. Place your finger on the **HW-827 Pulse Sensor** to view your real-time cardiovascular pulse waveform and authenticate!
