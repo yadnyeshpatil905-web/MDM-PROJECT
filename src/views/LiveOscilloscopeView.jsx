@@ -31,7 +31,7 @@ export default function LiveOscilloscopeView({
               PPG Signal Oscilloscope
             </h2>
             <p className="text-xs font-mono text-zinc-500">
-              100Hz real-time sampling • Moving baseline cancellation
+              100Hz real-time sampling â€¢ Moving baseline cancellation
             </p>
           </div>
         </div>

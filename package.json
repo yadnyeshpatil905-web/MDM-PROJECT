@@ -8,10 +8,13 @@
     "build": "vite build",
     "preview": "vite preview",
     "server": "node server/index.js",
+    "test": "node --test tests/biometricRecordings.test.js tests/apiRecordings.test.js",
     "start": "concurrently \"npm run dev\" \"npm run server\""
   },
+
   "dependencies": {
     "@serialport/parser-readline": "^13.0.0",
+    "@supabase/supabase-js": "^2.118.0",
     "clsx": "^2.1.1",
     "cors": "^2.8.5",
     "express": "^4.21.2",

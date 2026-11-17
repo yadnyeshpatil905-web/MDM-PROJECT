@@ -4,14 +4,19 @@
 #include <EEPROM.h>
 
 // ================= PIN CONFIGURATION =================
+// Heart Sensor (Pulse Sensor) connected to Analog Pin A0 (10-bit ADC: 0-1023)
 #define PPG_PIN     A0
 #define SERVO_PIN   9
 #define BUZZER_PIN  8
 #define LED_PIN     7
 
-// 1 = ENROLL
-// 0 = AUTHENTICATION
+// 1 = ENROLL (Boot default)
+// 0 = AUTHENTICATION (Boot default)
+#ifndef ENROLL_MODE
 #define ENROLL_MODE 0
+#endif
+
+bool isEnrollMode = (ENROLL_MODE == 1);
 
 // Set to 1 to stream real-time raw ADC microvoltages to Web Oscilloscope
 #define LIVE_STREAM_ADC 1
@@ -23,9 +28,9 @@
 #define MIN_IBI         400
 #define MAX_IBI         1333
 
-#define MIN_BEATS       5
+#define MIN_BEATS       3
 #define WAVE_POINTS     20
-#define MIN_SIGNAL      15
+#define MIN_SIGNAL      8
 
 #define MATCH_THRESHOLD 70
 
@@ -71,6 +76,7 @@ byte beatMax = 0;
 
 
 // ================= FUNCTION DECLARATIONS =================
+void checkSerialCommands();
 bool detectFinger();
 void resetCapture();
 bool capturePPG();
@@ -118,30 +124,20 @@ void setup() {
 
   lcd.setCursor(0, 1);
 
-  if (ENROLL_MODE == 1) {
+  if (isEnrollMode) {
     lcd.print(F("ENROLL MODE"));
+    Serial.println(F("BOOT: ENROLL MODE"));
   } else {
     lcd.print(F("AUTH MODE"));
   }
 
   delay(2000);
 
-  // ================= ENROLLMENT =================
-  if (ENROLL_MODE == 1) {
-
-    enrollUser();
-
-  }
-
-  // ================= AUTHENTICATION =================
-  else {
-
+  if (!isEnrollMode) {
     if (!loadTemplate()) {
-
       lcd.clear();
       lcd.setCursor(0, 0);
       lcd.print(F("NO TEMPLATE"));
-
       lcd.setCursor(0, 1);
       lcd.print(F("ENROLL FIRST"));
 
@@ -162,38 +158,84 @@ void setup() {
 
 
 // ========================================================
+// SERIAL COMMAND HANDLER
+// ========================================================
+void checkSerialCommands() {
+  while (Serial.available()) {
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+    if (cmd.length() == 0) continue;
+
+    if (cmd.equalsIgnoreCase("MODE:ENROLL") || cmd.equalsIgnoreCase("CMD:ENROLL") || cmd.equalsIgnoreCase("ENROLL") || cmd.equalsIgnoreCase("START")) {
+      isEnrollMode = true;
+      Serial.println(F("MODE:ENROLL_ACTIVE"));
+      Serial.println(F("BIOMETRIC ENROLLMENT"));
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print(F("ENROLL MODE"));
+      lcd.setCursor(0, 1);
+      lcd.print(F("PLACE FINGER"));
+    } else if (cmd.equalsIgnoreCase("MODE:AUTH") || cmd.equalsIgnoreCase("CMD:AUTH") || cmd.equalsIgnoreCase("AUTH") || cmd.equalsIgnoreCase("START_AUTH")) {
+      isEnrollMode = false;
+      Serial.println(F("MODE:AUTH_ACTIVE"));
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print(F("ACCESS LOCKED"));
+      lcd.setCursor(0, 1);
+      lcd.print(F("PLACE FINGER"));
+    } else if (cmd.startsWith("CMD:UNLOCK")) {
+      grantAccess(100);
+    } else if (cmd.equalsIgnoreCase("CMD:LOCK") || cmd.equalsIgnoreCase("RESET")) {
+      isEnrollMode = false;
+      showLocked();
+    }
+  }
+}
+
+
+// ========================================================
 // MAIN LOOP
 // ========================================================
 void loop() {
+  checkSerialCommands();
 
   lockServo.write(0);
   digitalWrite(LED_PIN, LOW);
 
   lcd.clear();
-
   lcd.setCursor(0, 0);
-  lcd.print(F("ACCESS LOCKED"));
+  if (isEnrollMode) {
+    lcd.print(F("ENROLL MODE"));
+  } else {
+    lcd.print(F("ACCESS LOCKED"));
+  }
 
   lcd.setCursor(0, 1);
   lcd.print(F("PLACE FINGER"));
 
   Serial.println();
   Serial.println(F("----------------------"));
-  Serial.println(F("SYSTEM LOCKED"));
+  if (isEnrollMode) {
+    Serial.println(F("SYSTEM IN ENROLL MODE"));
+    Serial.println(F("BIOMETRIC ENROLLMENT"));
+  } else {
+    Serial.println(F("SYSTEM LOCKED"));
+  }
   Serial.println(F("PLACE FINGER"));
 
   // Check finger
   if (!detectFinger()) {
-
-    delay(500);
+    delay(300);
     return;
   }
 
   lcd.clear();
-
   lcd.setCursor(0, 0);
-  lcd.print(F("CAPTURING PPG"));
-
+  if (isEnrollMode) {
+    lcd.print(F("ENROLLING PPG"));
+  } else {
+    lcd.print(F("CAPTURING PPG"));
+  }
   lcd.setCursor(0, 1);
   lcd.print(F("KEEP STILL"));
 
@@ -202,16 +244,25 @@ void loop() {
 
   // Capture PPG
   if (!capturePPG()) {
-
-    denyAccess(F("BAD SIGNAL"));
-
-    delay(2000);
-    return;
+    if (isEnrollMode) {
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print(F("ENROLL FAILED"));
+      lcd.setCursor(0, 1);
+      lcd.print(F("TRY AGAIN"));
+      Serial.println(F("ENROLLMENT FAILED - TRY AGAIN"));
+      tone(BUZZER_PIN, 1000, 300);
+      delay(1500);
+      return;
+    } else {
+      denyAccess(F("BAD SIGNAL"));
+      delay(2000);
+      return;
+    }
   }
 
   // Display heart rate
   lcd.clear();
-
   lcd.setCursor(0, 0);
   lcd.print(F("HEART RATE:"));
   lcd.print(bpm);
@@ -225,36 +276,105 @@ void loop() {
 
   delay(1500);
 
+  // ================= ENROLLMENT FLOW =================
+  if (isEnrollMode) {
+    for (byte i = 0; i < WAVE_POINTS; i++) {
+      enrolled[i] = current[i];
+    }
+    saveTemplate();
+
+    // Emit 20-point morphological template vector for backend/UI
+    Serial.print(F("TEMPLATE:["));
+    for (byte i = 0; i < WAVE_POINTS; i++) {
+      Serial.print(current[i]);
+      if (i < WAVE_POINTS - 1) Serial.print(F(","));
+    }
+    Serial.println(F("]"));
+
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(F("ENROLLMENT"));
+    lcd.setCursor(0, 1);
+    lcd.print(F("SUCCESS"));
+
+    Serial.println(F("ENROLLMENT SUCCESS"));
+    Serial.println(F("TEMPLATE SAVED"));
+
+    tone(BUZZER_PIN, 2000, 350);
+    digitalWrite(LED_PIN, HIGH);
+    delay(2000);
+    digitalWrite(LED_PIN, LOW);
+
+    // After successful enrollment, revert to AUTH ready mode
+    isEnrollMode = false;
+    showLocked();
+    return;
+  }
+
+  // ================= AUTHENTICATION WORKFLOW =================
   // Verification screen
   lcd.clear();
-
   lcd.setCursor(0, 0);
   lcd.print(F("VERIFYING"));
-
   lcd.setCursor(0, 1);
   lcd.print(F("BIOMETRIC..."));
 
   Serial.println(F("VERIFYING BIOMETRIC..."));
-
   delay(500);
 
   // Compare
   byte score = compareTemplates();
 
+  // Emit 20-point morphological template vector for backend validation
+  Serial.print(F("TEMPLATE:["));
+  for (byte i = 0; i < WAVE_POINTS; i++) {
+    Serial.print(current[i]);
+    if (i < WAVE_POINTS - 1) Serial.print(F(","));
+  }
+  Serial.println(F("]"));
+
   Serial.print(F("MATCH = "));
   Serial.print(score);
   Serial.println(F("%"));
+  Serial.print(F("BIOMETRIC_CANDIDATE:SCORE="));
+  Serial.println(score);
 
   if (score >= MATCH_THRESHOLD) {
-
-    grantAccess(score);
-
+    // Biometric Step 1 Passed: Display PIN required prompt & await backend authorization
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(F("BIO VERIFIED"));
+    lcd.setCursor(0, 1);
+    lcd.print(F("ENTER PIN ON WEB"));
+    
+    Serial.println(F("BIOMETRIC_STEP1_PASSED: AWAITING_PIN_CMD"));
+    
+    // Listen for backend CMD:UNLOCK for up to 10 seconds before auto-cancelling
+    unsigned long waitStart = millis();
+    bool unlockedByHost = false;
+    while (millis() - waitStart < 10000UL) {
+      if (Serial.available()) {
+        String cmd = Serial.readStringUntil('\n');
+        cmd.trim();
+        if (cmd.startsWith("CMD:UNLOCK")) {
+          grantAccess(score);
+          unlockedByHost = true;
+          break;
+        } else if (cmd == "CMD:LOCK" || cmd == "CMD:RESET") {
+          break;
+        }
+      }
+      delay(50);
+    }
+    
+    if (!unlockedByHost) {
+      denyAccess(F("PIN TIMEOUT"));
+    }
   } else {
-
     denyAccess(F("NO MATCH"));
   }
 
-  delay(2500);
+  delay(2000);
 }
 
 
@@ -268,9 +388,24 @@ bool detectFinger() {
 
   unsigned long start = millis();
 
-  while (millis() - start < 1200UL) {
-
+  while (millis() - start < 1000UL) {
+    checkSerialCommands();
     int value = analogRead(PPG_PIN);
+
+    // Track baseline and continuously stream live ADC to web interface
+    baseline = (baseline * 98L + value * 2L) / 100L;
+    int ac = value - baseline;
+
+#if LIVE_STREAM_ADC
+    static byte detectStreamCounter = 0;
+    if (++detectStreamCounter >= 2) {
+      detectStreamCounter = 0;
+      Serial.print(F("RAW:"));
+      Serial.print(value);
+      Serial.print(F(",AC:"));
+      Serial.println(ac);
+    }
+#endif
 
     if (value < minimum)
       minimum = value;
@@ -356,6 +491,11 @@ bool capturePPG() {
     int raw = analogRead(PPG_PIN);
 
     processPPG(raw);
+
+    // Fast completion: once 3+ beats are acquired and at least 3.0s elapsed, finish!
+    if (templateBeats >= 3 && (millis() - start >= 3000UL)) {
+      break;
+    }
   }
 
   Serial.println(F("CAPTURE FINISHED"));
@@ -377,8 +517,8 @@ bool capturePPG() {
     return false;
   }
 
-  // Beat check
-  if (beatCount < MIN_BEATS) {
+  // Beat check (3 beats is sufficient for clean 20-point morphology template)
+  if (beatCount < 3) {
 
     Serial.println(F("NOT ENOUGH HEARTBEATS"));
 
@@ -386,7 +526,7 @@ bool capturePPG() {
   }
 
   // Interval check
-  if (validIntervals < MIN_BEATS - 1) {
+  if (validIntervals < 2) {
 
     Serial.println(F("BEAT TIMING INVALID"));
 
@@ -654,11 +794,10 @@ byte compareTemplates() {
 // ========================================================
 void enrollUser() {
 
+  isEnrollMode = true;
   lcd.clear();
-
   lcd.setCursor(0, 0);
-  lcd.print(F("BIOMETRIC"));
-
+  lcd.print(F("ENROLL MODE"));
   lcd.setCursor(0, 1);
   lcd.print(F("PLACE FINGER"));
 
@@ -669,60 +808,61 @@ void enrollUser() {
 
   // Wait for finger
   while (!detectFinger()) {
-
-    delay(500);
+    checkSerialCommands();
+    if (!isEnrollMode) return;
+    delay(300);
   }
 
   lcd.clear();
-
   lcd.setCursor(0, 0);
   lcd.print(F("CAPTURING"));
-
   lcd.setCursor(0, 1);
   lcd.print(F("KEEP STILL"));
 
   if (!capturePPG()) {
-
     lcd.clear();
-
     lcd.setCursor(0, 0);
     lcd.print(F("ENROLL FAILED"));
-
     lcd.setCursor(0, 1);
     lcd.print(F("TRY AGAIN"));
-
-    Serial.println(F("ENROLLMENT FAILED"));
-
-    while (true) {
-
-      lockServo.write(0);
-
-      delay(1000);
-    }
+    Serial.println(F("ENROLLMENT FAILED - TRY AGAIN"));
+    tone(BUZZER_PIN, 1000, 300);
+    delay(1500);
+    return;
   }
 
   // Copy current template
   for (byte i = 0; i < WAVE_POINTS; i++) {
-
-    enrolled[i] =
-      current[i];
+    enrolled[i] = current[i];
   }
 
   // Save to EEPROM
   saveTemplate();
 
-  lcd.clear();
+  // Emit 20-point morphological template vector for backend/UI
+  Serial.print(F("TEMPLATE:["));
+  for (byte i = 0; i < WAVE_POINTS; i++) {
+    Serial.print(current[i]);
+    if (i < WAVE_POINTS - 1) Serial.print(F(","));
+  }
+  Serial.println(F("]"));
 
+  lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print(F("ENROLLMENT"));
-
   lcd.setCursor(0, 1);
   lcd.print(F("SUCCESS"));
 
   Serial.println(F("ENROLLMENT SUCCESS"));
   Serial.println(F("TEMPLATE SAVED"));
 
+  tone(BUZZER_PIN, 2000, 350);
+  digitalWrite(LED_PIN, HIGH);
   delay(2000);
+  digitalWrite(LED_PIN, LOW);
+
+  isEnrollMode = false;
+  showLocked();
 }
 
 
@@ -864,12 +1004,17 @@ void showLocked() {
   lcd.clear();
 
   lcd.setCursor(0, 0);
-  lcd.print(F("SYSTEM READY"));
+  if (isEnrollMode) {
+    lcd.print(F("ENROLL MODE"));
+    lcd.setCursor(0, 1);
+    lcd.print(F("READY"));
+    Serial.println(F("ENROLL MODE - READY"));
+  } else {
+    lcd.print(F("SYSTEM READY"));
+    lcd.setCursor(0, 1);
+    lcd.print(F("LOCKED"));
+    Serial.println(F("SYSTEM READY - LOCKED"));
+  }
 
-  lcd.setCursor(0, 1);
-  lcd.print(F("LOCKED"));
-
-  Serial.println(F("SYSTEM READY - LOCKED"));
-
-  delay(1500);
+  delay(1000);
 }

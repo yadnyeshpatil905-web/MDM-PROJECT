@@ -48,6 +48,14 @@ export class PpgSimulator {
     // Live wave buffer for canvas oscilloscope (150 samples)
     this.waveBuffer = [];
     this.rawBuffer = [];
+    this.rawPulseBuffer = [];
+    this.rawRedBuffer = [];
+    this.rawIrBuffer = [];
+    this.rawRecording = null;
+    this.latestRaw = 512;
+    this.latestAc = 0;
+    this.latestRed = 512;
+    this.latestIr = 512;
     for (let i = 0; i < 150; i++) {
       this.waveBuffer.push({ t: i, val: 512, ac: 0, isPeak: false });
     }
@@ -58,6 +66,7 @@ export class PpgSimulator {
     this.heartPhase = 0;
     this.heartRateTarget = 72; // BPM
   }
+
 
   setMode(mode) {
     this.mode = mode;
@@ -85,10 +94,15 @@ export class PpgSimulator {
     this.bpm = 0;
     this.accumulator = new Array(WAVE_POINTS).fill(0);
     this.currentTemplate = new Array(WAVE_POINTS).fill(0);
+    this.rawPulseBuffer = [];
+    this.rawRedBuffer = [];
+    this.rawIrBuffer = [];
+    this.rawRecording = null;
 
     // Step 1: Detect Finger
     this.state = 'FINGER_DETECTED';
     this.statusMessage = 'FINGER DETECTED - KEEP STILL';
+
     this.lcdLine1 = 'CAPTURING PPG';
     this.lcdLine2 = 'KEEP STILL';
     this.signalQuality = 'GOOD';
@@ -96,13 +110,18 @@ export class PpgSimulator {
 
     this.startOscilloscopeWave();
 
-    // After 1.2s finger settling, start 10s capture (or 6s fast interactive demo)
+    // Fast acquisition: Enrollment needs only 3.0s capture; Auth uses 5.0s
+    const isEnroll = this.mode === 'ENROLLMENT';
+    const settlingTime = isEnroll ? 400 : 1000;
+    this.captureDuration = isEnroll ? 3000 : 5500;
+
     setTimeout(() => {
       if (!this.isRunning) return;
       this.state = 'CAPTURING';
-      this.statusMessage = 'CAPTURING PPG BIOMETRIC WAVEFORM...';
+      this.statusMessage = isEnroll 
+        ? 'RECORDING HEART SENSOR (PULSE SENSOR) MORPHOLOGY...' 
+        : 'CAPTURING PPG BIOMETRIC WAVEFORM...';
       this.captureStartTime = Date.now();
-      this.captureDuration = 7000; // 7 seconds capture
       
       this.captureInterval = setInterval(() => {
         const elapsed = Date.now() - this.captureStartTime;
@@ -113,11 +132,12 @@ export class PpgSimulator {
           this.finishCaptureProcess();
         }
         this.emit();
-      }, 100);
-    }, 1200);
+      }, 80);
+    }, settlingTime);
   }
 
   stopProcess() {
+    if (!this.isRunning && this.state === 'IDLE') return;
     this.isRunning = false;
     if (this.captureInterval) clearInterval(this.captureInterval);
     if (this.waveTimer) clearInterval(this.waveTimer);
@@ -138,6 +158,7 @@ export class PpgSimulator {
     this.heartRateTarget = this.targetResult === 'FAIL_HEARTRATE' ? 165 : 72 + Math.floor(Math.random() * 8 - 4);
     const msPerBeat = (60000 / this.heartRateTarget);
     let lastBeatTime = Date.now();
+    let hasTriggeredThisCycle = false;
 
     this.waveTimer = setInterval(() => {
       sampleIdx++;
@@ -164,19 +185,34 @@ export class PpgSimulator {
         // Slight micro-jitter
         ac += (Math.random() - 0.5) * 4;
 
-        if (normalizedPhase >= 0.17 && normalizedPhase <= 0.20 && Math.abs(normalizedPhase - 0.18) < 0.02) {
-          isPeak = true;
-          if (this.state === 'CAPTURING' && (now - lastBeatTime) > msPerBeat * 0.8) {
+        if (normalizedPhase >= 0.15 && normalizedPhase <= 0.24) {
+          if (!hasTriggeredThisCycle) {
+            isPeak = true;
+            hasTriggeredThisCycle = true;
             this.beatCount++;
             this.validIntervals++;
             this.bpm = Math.round(60000 / msPerBeat);
             this.addBeatToTemplate();
           }
+        } else if (normalizedPhase > 0.40) {
+          hasTriggeredThisCycle = false;
         }
       }
 
       const baseline = 512 + Math.sin(sampleIdx * 0.02) * 15;
-      const raw = Math.round(baseline + ac);
+      const raw = Math.max(0, Math.min(1023, Math.round(baseline + ac)));
+
+      // Synthesize realistic Heart Sensor (Pulse Sensor) 10-bit analog optical samples
+      this.latestRaw = raw;
+      this.latestAc = Math.round(ac);
+      this.latestRed = raw;
+      this.latestIr = raw;
+
+      if (this.state === 'CAPTURING' && this.rawPulseBuffer.length < 100) {
+        this.rawPulseBuffer.push(raw);
+        this.rawRedBuffer.push(raw);
+        this.rawIrBuffer.push(raw);
+      }
 
       this.signalAmplitude = Math.round(Math.abs(ac));
       this.waveBuffer.shift();
@@ -184,7 +220,10 @@ export class PpgSimulator {
         t: sampleIdx,
         val: raw,
         ac: Math.round(ac),
-        isPeak: isPeak
+        isPeak: isPeak,
+        pulse: raw,
+        red: raw,
+        ir: raw
       });
 
       if (sampleIdx % 3 === 0) {
@@ -213,16 +252,46 @@ export class PpgSimulator {
   }
 
   finishCaptureProcess() {
-    // Calculate final template
-    if (this.templateBeats > 0) {
-      for (let i = 0; i < WAVE_POINTS; i++) {
-        this.currentTemplate[i] = Math.min(255, Math.round(this.accumulator[i] / this.templateBeats));
-      }
+    // Ensure at least 60 raw samples are present
+    while (this.rawPulseBuffer.length < 60) {
+      const fallbackVal = Math.round(512 + Math.sin(this.rawPulseBuffer.length * 0.2) * 25);
+      this.rawPulseBuffer.push(fallbackVal);
+      this.rawRedBuffer.push(fallbackVal);
+      this.rawIrBuffer.push(fallbackVal);
+    }
+
+    // Package validated raw Heart Sensor (Pulse Sensor) biometric recording
+    this.rawRecording = {
+      pulse_samples: [...this.rawPulseBuffer],
+      raw_samples: [...this.rawPulseBuffer],
+      red_samples: [...this.rawPulseBuffer],
+      ir_samples: [...this.rawPulseBuffer],
+      sample_rate: 100,
+      sample_count: this.rawPulseBuffer.length,
+      device_info: 'Heart Sensor (Pulse Sensor - Analog Pin A0)'
+    };
+
+    // Calculate final 20-point morphology template
+    const beatsCount = Math.max(1, this.templateBeats);
+    for (let i = 0; i < WAVE_POINTS; i++) {
+      const acc = this.accumulator[i] > 0 ? this.accumulator[i] : (this.enrolledTemplate[i] * beatsCount);
+      this.currentTemplate[i] = Math.max(10, Math.min(255, Math.round(acc / beatsCount)));
+    }
+
+    if (this.mode === 'ENROLLMENT') {
+      // Rapid enrollment completion (no false auth steps)
+      this.state = 'ACCESS_GRANTED';
+      this.statusMessage = 'HEART SENSOR (PULSE SENSOR) TEMPLATE ACQUIRED • READY TO REGISTER';
+      this.lcdLine1 = 'ENROLLMENT';
+      this.lcdLine2 = 'SUCCESS';
+      this.evaluateResult();
+      return;
     }
 
     // Step 2: Verifying Heartbeats
     this.state = 'VERIFYING_BEATS';
     this.statusMessage = 'VERIFYING HEARTBEAT INTERVALS & MORPHOLOGY...';
+
     this.lcdLine1 = `HEART RATE: ${this.bpm}`;
     this.lcdLine2 = `BEATS: ${this.beatCount}`;
     this.emit();
@@ -240,9 +309,9 @@ export class PpgSimulator {
       setTimeout(() => {
         if (!this.isRunning) return;
         this.evaluateResult();
-      }, 1500);
+      }, 1000);
 
-    }, 1500);
+    }, 1000);
   }
 
   evaluateResult() {
@@ -297,44 +366,45 @@ export class PpgSimulator {
       this.servoAngle = 0;
       this.emit({ deniedReason: 'INVALID HEART RATE' });
     } else if (score >= MATCH_THRESHOLD) {
-      // SUCCESS! Access Granted
-      this.state = 'ACCESS_GRANTED';
-      this.statusMessage = `ACCESS GRANTED - MATCH SCORE: ${score}%`;
-      this.lcdLine1 = 'ACCESS GRANTED';
-      this.lcdLine2 = `MATCH: ${score}%`;
+      // Step 1 Passed: Biometric verified, BUT KEEP VAULT LOCKED! Require PIN
+      this.state = 'PIN_REQUIRED';
+      this.statusMessage = `BIOMETRIC VERIFIED (${score}% >= ${MATCH_THRESHOLD}%) Ã¢â‚¬Â¢ VAULT PIN REQUIRED`;
+      this.lcdLine1 = 'BIO VERIFIED';
+      this.lcdLine2 = 'ENTER PIN';
       this.ledStatus = true;
-      this.servoAngle = 90; // UNLOCK SERVO
-      this.emit({ granted: true });
-
-      // Auto-lock after 5 seconds matching Arduino delay(5000)
-      setTimeout(() => {
-        if (this.state === 'ACCESS_GRANTED') {
-          this.servoAngle = 0;
-          this.ledStatus = false;
-          this.statusMessage = 'SYSTEM LOCKED AGAIN';
-          this.lcdLine1 = 'ACCESS LOCKED';
-          this.lcdLine2 = 'PLACE FINGER';
-          this.emit();
-
-          setTimeout(() => {
-            this.stopProcess();
-          }, 1500);
-        }
-      }, 5000);
+      this.servoAngle = 0; // STAYS LOCKED (0Ã‚Â°)
+      this.emit({ biometricPassed: true, score });
     } else {
-      // DENIED: Mismatch
+      // Biometric Mismatch
       this.state = 'ACCESS_DENIED';
-      this.statusMessage = `ACCESS DENIED: BIOMETRIC MISMATCH (${score}% < ${MATCH_THRESHOLD}%)`;
+      this.statusMessage = `ACCESS DENIED: MATCH SCORE ${score}% < ${MATCH_THRESHOLD}%`;
       this.lcdLine1 = 'ACCESS DENIED';
-      this.lcdLine2 = 'NO MATCH';
+      this.lcdLine2 = `SCORE: ${score}%`;
       this.ledStatus = false;
       this.servoAngle = 0;
-      this.emit({ deniedReason: 'BIOMETRIC MISMATCH' });
-
-      setTimeout(() => {
-        this.stopProcess();
-      }, 3500);
+      this.emit({ deniedReason: 'BIOMETRIC MISMATCH', score });
     }
+  }
+
+  // Actuator can ONLY be unlocked when Step 2 PIN succeeds on trusted backend
+  unlockAuthorized(autoLockSec = 5) {
+    this.state = 'ACCESS_GRANTED';
+    this.statusMessage = 'TWO-STEP AUTHENTICATION AUTHORIZED Ã¢â‚¬Â¢ VAULT UNLOCKED (SERVO 90Ã‚Â°)';
+    this.servoAngle = 90;
+    this.ledStatus = true;
+    this.lcdLine1 = 'ACCESS GRANTED';
+    this.lcdLine2 = 'VAULT OPEN';
+    this.emit({ granted: true });
+
+    setTimeout(() => {
+      this.servoAngle = 0;
+      this.ledStatus = false;
+      this.state = 'IDLE';
+      this.statusMessage = 'AUTO-RELOCK COMPLETE Ã¢â‚¬Â¢ VAULT LOCKED (SERVO 0Ã‚Â°)';
+      this.lcdLine1 = 'ACCESS LOCKED';
+      this.lcdLine2 = 'PLACE FINGER';
+      this.emit();
+    }, autoLockSec * 1000);
   }
 
   emit(extra = {}) {
@@ -359,7 +429,11 @@ export class PpgSimulator {
       waveBuffer: this.waveBuffer,
       enrolledTemplate: this.enrolledTemplate,
       currentTemplate: this.currentTemplate,
+      rawRecording: this.rawRecording,
+      latestRed: this.latestRed,
+      latestIr: this.latestIr,
       ...extra
     });
   }
 }
+

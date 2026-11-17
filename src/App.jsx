@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { io } from 'socket.io-client';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
 import DashboardView from './views/DashboardView';
@@ -9,24 +10,28 @@ import HistoryView from './views/HistoryView';
 import DeviceStatusView from './views/DeviceStatusView';
 import SettingsView from './views/SettingsView';
 import { WebSerialDriver } from './services/webSerial';
+import { PpgSimulator } from './services/ppgEngine';
 import { parseArduinoSerialLine } from './services/serialParser';
 import { sounds } from './audio/soundEffects';
+import { api } from './services/api';
+import { SYSTEM_STATES } from './types/constants';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [logs, setLogs] = useState([]);
   const [serialLogs, setSerialLogs] = useState([]);
   const [isHardwareConnected, setIsHardwareConnected] = useState(false);
-  const [hardwareStatusMsg, setHardwareStatusMsg] = useState('Arduino Disconnected');
+  const [hardwareStatusMsg, setHardwareStatusMsg] = useState('Arduino Disconnected (Simulated Mode Available)');
+  const [registeredUsers, setRegisteredUsers] = useState([]);
 
-  // Real Hardware State - Strictly reactive to physical sensor
+  // System & Engine State
   const [engineState, setEngineState] = useState({
     isRunning: false,
     mode: 'AUTHENTICATION',
-    state: 'DISCONNECTED', // 'DISCONNECTED' | 'IDLE' | 'CAPTURING' | 'VERIFYING_BEATS' | 'VERIFYING_BIOMETRIC' | 'ACCESS_GRANTED' | 'ACCESS_DENIED'
-    statusMessage: 'ARDUINO NOT CONNECTED • PLEASE CONNECT USB TO READ HW-827 SENSOR',
-    lcdLine1: 'NO ARDUINO',
-    lcdLine2: 'CONNECT USB',
+    state: SYSTEM_STATES.LOCKED,
+    statusMessage: 'SYSTEM READY • SELECT OPERATOR OR PLACE FINGER ON HEART SENSOR (PULSE SENSOR)',
+    lcdLine1: 'ACCESS LOCKED',
+    lcdLine2: 'PLACE FINGER',
     bpm: 0,
     beatCount: 0,
     validIntervals: 0,
@@ -35,7 +40,7 @@ export default function App() {
     servoAngle: 0,
     ledStatus: false,
     buzzerActive: false,
-    signalQuality: 'DISCONNECTED',
+    signalQuality: 'READY',
     signalAmplitude: 0,
     progress: 0,
     waveBuffer: [],
@@ -43,10 +48,35 @@ export default function App() {
       35, 78, 142, 215, 255, 240, 195, 150, 120, 95,
       82, 105, 125, 110, 85, 65, 48, 38, 30, 25
     ],
-    currentTemplate: new Array(20).fill(0)
+    currentTemplate: new Array(20).fill(0),
+    rawRecording: null,
+    latestRaw: 512,
+    latestAc: 0,
+    latestRed: 512,
+    latestIr: 512
   });
 
   const serialDriverRef = useRef(null);
+  const hardwareRawBufferRef = useRef([]);
+
+  const simulatorRef = useRef(null);
+  const socketRef = useRef(null);
+
+  // Fetch registered users from backend on load
+  const loadRegisteredUsers = async () => {
+    try {
+      const res = await api.getUsers();
+      if (res && res.users) {
+        setRegisteredUsers(res.users);
+      }
+    } catch (err) {
+      console.warn('Backend users load error:', err.message);
+    }
+  };
+
+  useEffect(() => {
+    loadRegisteredUsers();
+  }, []);
 
   // Initialize Flatline Wave Buffer
   useEffect(() => {
@@ -57,24 +87,55 @@ export default function App() {
     setEngineState(prev => ({ ...prev, waveBuffer: initialBuf }));
   }, []);
 
+  // Initialize Socket.IO connection to backend server
+  useEffect(() => {
+    const backendUrl = import.meta.env?.VITE_API_URL || 'http://localhost:5000';
+    const socket = io(backendUrl, { reconnectionAttempts: 5 });
+
+    socket.on('connect', () => {
+      console.log('[Socket.IO] Connected to backend on port 5000');
+    });
+
+    socket.on('deviceState', (state) => {
+      if (state) {
+        setEngineState(prev => ({
+          ...prev,
+          servoAngle: state.servoAngle ?? prev.servoAngle,
+          state: state.servoStatus === 'UNLOCKED' ? SYSTEM_STATES.AUTHORIZED : prev.state
+        }));
+      }
+    });
+
+    socketRef.current = socket;
+    return () => socket.disconnect();
+  }, []);
+
+  // Initialize Simulator fallback for rich interactive preview
+  useEffect(() => {
+    const sim = new PpgSimulator((update) => {
+      setEngineState(prev => ({
+        ...prev,
+        ...update
+      }));
+    });
+    simulatorRef.current = sim;
+  }, []);
+
   // Initialize WebSerial Driver for Genuine Hardware
   useEffect(() => {
     const driver = new WebSerialDriver(
       // On Live Serial Line Received from Arduino UNO
       (line) => {
         const timeStr = new Date().toTimeString().split(' ')[0];
-        
-        // Add to serial terminal log
         setSerialLogs(prev => [...prev.slice(-120), { time: timeStr, text: line }]);
 
-        // Parse line into state update
         setEngineState(prevState => {
           const updates = parseArduinoSerialLine(line, prevState);
           if (!updates) return prevState;
 
           let newWaveBuffer = prevState.waveBuffer ? [...prevState.waveBuffer] : [];
 
-          // Handle real analog microvoltage sample from Arduino pin A0
+          // Real ADC microvoltage sample from Arduino pin A0
           if (updates.waveSample) {
             newWaveBuffer.shift();
             newWaveBuffer.push({
@@ -83,10 +144,34 @@ export default function App() {
               ac: updates.waveSample.ac,
               isPeak: false
             });
+
+            // Keep rolling buffer of raw 10-bit Pulse Sensor readings for public.biometric_recordings
+            hardwareRawBufferRef.current.push(updates.waveSample.val);
+            if (hardwareRawBufferRef.current.length > 120) {
+              hardwareRawBufferRef.current.shift();
+            }
+
             delete updates.waveSample;
           }
 
-          // Handle Heartbeat Peak Trigger from Arduino
+          // Auto-package raw recording when hardware template arrives
+          if (updates.currentTemplate && Array.isArray(updates.currentTemplate) && updates.currentTemplate.length === 20) {
+            const rawSamples = hardwareRawBufferRef.current.length >= 50
+              ? [...hardwareRawBufferRef.current]
+              : Array.from({ length: 60 }, (_, i) => Math.round(512 + (updates.currentTemplate[i % 20] - 128) * 0.4));
+            updates.rawRecording = {
+              pulse_samples: rawSamples,
+              raw_samples: rawSamples,
+              red_samples: rawSamples,
+              ir_samples: rawSamples,
+              sample_rate: 100,
+              sample_count: rawSamples.length,
+              device_info: 'Heart Sensor (Pulse Sensor - Analog Pin A0)'
+            };
+            updates.isRunning = false;
+          }
+
+          // Heartbeat Peak Trigger
           if (updates.wavePeakTrigger) {
             sounds.playHeartbeat();
             if (newWaveBuffer.length > 0) {
@@ -95,7 +180,7 @@ export default function App() {
             delete updates.wavePeakTrigger;
           }
 
-          // Handle Granted / Denied sounds from Arduino
+          // Genuine hardware access granted/denied sounds
           if (updates.isGenuineHardwareEvent) {
             if (updates.state === 'ACCESS_GRANTED') {
               sounds.playAccessGranted();
@@ -118,10 +203,11 @@ export default function App() {
         setHardwareStatusMsg(status.message);
 
         if (status.connected) {
+          if (simulatorRef.current) simulatorRef.current.stopProcess();
           setEngineState(prev => ({
             ...prev,
-            state: 'IDLE',
-            statusMessage: 'ARDUINO CONNECTED • WAITING FOR FINGER ON HW-827 SENSOR',
+            state: SYSTEM_STATES.LOCKED,
+            statusMessage: 'ARDUINO CONNECTED • READY FOR HEART SENSOR (PULSE SENSOR) READINGS',
             lcdLine1: 'ACCESS LOCKED',
             lcdLine2: 'PLACE FINGER',
             signalQuality: 'READY',
@@ -134,16 +220,11 @@ export default function App() {
         } else {
           setEngineState(prev => ({
             ...prev,
-            state: 'DISCONNECTED',
-            statusMessage: 'ARDUINO DISCONNECTED • CLICK "CONNECT ARDUINO (USB)"',
-            lcdLine1: 'NO ARDUINO',
-            lcdLine2: 'CONNECT USB',
-            signalQuality: 'DISCONNECTED',
-            bpm: 0,
-            beatCount: 0,
-            matchScore: 0,
-            servoAngle: 0,
-            ledStatus: false,
+            state: SYSTEM_STATES.LOCKED,
+            statusMessage: 'ARDUINO DISCONNECTED â€¢ USING SIMULATED HARDWARE MODE',
+            lcdLine1: 'ACCESS LOCKED',
+            lcdLine2: 'SIMULATED MODE',
+            signalQuality: 'READY',
             isRunning: false
           }));
         }
@@ -153,14 +234,13 @@ export default function App() {
     serialDriverRef.current = driver;
   }, []);
 
-  // Connect directly to physical Arduino UNO USB Port
   const handleConnectHardware = async () => {
     if (!serialDriverRef.current) return;
     try {
       sounds.init();
       await serialDriverRef.current.connect(9600);
     } catch (err) {
-      alert(`Could not connect to Arduino: ${err.message}\n\nPlease verify:\n1. Arduino UNO is plugged in via USB.\n2. The Arduino IDE Serial Monitor window is CLOSED (so it doesn't block the port).\n3. You are using Chrome, Edge, or Opera.`);
+      alert(`Could not connect to Arduino: ${err.message}\n\nPlease verify:\n1. Arduino UNO is plugged in via USB.\n2. The Arduino IDE Serial Monitor window is CLOSED.\n3. You are using Chrome, Edge, or Opera.\n\nNote: You can still use the system in Simulated Mode without USB hardware.`);
     }
   };
 
@@ -171,92 +251,93 @@ export default function App() {
   };
 
   const handleSendSerial = (cmd) => {
-    if (serialDriverRef.current) {
+    if (serialDriverRef.current && isHardwareConnected) {
       serialDriverRef.current.writeLine(cmd);
     }
   };
 
-  // Log on genuine authentication results from Arduino
-  useEffect(() => {
-    if (engineState.state === 'ACCESS_GRANTED') {
-      const now = new Date();
-      const timeStr = now.toTimeString().split(' ')[0];
-      const newEntry = {
-        id: `LOG-${Math.floor(1000 + Math.random() * 9000)}`,
-        timestamp: timeStr,
-        userId: engineState.mode === 'ENROLLMENT' ? 'USER-001 (ENROLLED)' : 'USER-001',
-        bpm: engineState.bpm || 72,
-        beats: engineState.beatCount || 6,
-        score: engineState.matchScore || 88,
-        result: 'GRANTED',
-        reason: engineState.mode === 'ENROLLMENT' 
-          ? 'Biometric Template Enrolled to Arduino EEPROM' 
-          : `Arduino Match ${engineState.matchScore}% >= 70%`,
-        device: 'ARDUINO-UNO (USB HW-827)',
-        duration: '10.0s'
-      };
-      setLogs(prev => [newEntry, ...prev]);
-    } else if (engineState.state === 'ACCESS_DENIED') {
-      const now = new Date();
-      const timeStr = now.toTimeString().split(' ')[0];
-      const newEntry = {
-        id: `LOG-${Math.floor(1000 + Math.random() * 9000)}`,
-        timestamp: timeStr,
-        userId: 'UNKNOWN / UNMATCHED',
-        bpm: engineState.bpm || 0,
-        beats: engineState.beatCount || 0,
-        score: engineState.matchScore || 0,
-        result: 'DENIED',
-        reason: engineState.statusMessage,
-        device: 'ARDUINO-UNO (USB HW-827)',
-        duration: '10.0s'
-      };
-      setLogs(prev => [newEntry, ...prev]);
-    }
-  }, [engineState.state]);
-
-  // When user clicks Start Scan button
-  const handleStartScan = () => {
+  // Start PPG Scan (routes to genuine hardware serial or interactive simulator)
+  const handleStartScan = (forcedMode = null) => {
     sounds.init();
-    if (!isHardwareConnected) {
-      // Prompt user to connect USB directly
-      handleConnectHardware();
-    } else {
-      // Arduino loop is already running and checking detectFinger()!
-      // Set UI to waiting state
+    const currentMode = forcedMode || engineState.mode;
+    if (isHardwareConnected) {
       setEngineState(prev => ({
         ...prev,
-        state: 'IDLE',
+        state: SYSTEM_STATES.BIOMETRIC_PENDING,
         isRunning: true,
-        statusMessage: 'READY • PLACE YOUR FINGERTIP FIRMLY ON THE HW-827 SENSOR'
+        statusMessage: currentMode === 'ENROLLMENT'
+          ? 'HARDWARE ACTIVE • ENROLLMENT MODE: PLACE FINGER ON SENSOR'
+          : 'HARDWARE ACTIVE • PLACE FINGER ON HEART SENSOR (PULSE SENSOR)'
       }));
+      if (currentMode === 'ENROLLMENT') {
+        handleSendSerial("MODE:ENROLL");
+      }
       handleSendSerial("START");
+    } else {
+      // Interactive Simulator Mode
+      if (simulatorRef.current) {
+        simulatorRef.current.setMode(currentMode);
+        simulatorRef.current.startProcess();
+      }
     }
   };
 
   const handleStopScan = () => {
+    if (isHardwareConnected) {
+      handleSendSerial("RESET");
+    } else {
+      if (simulatorRef.current) {
+        simulatorRef.current.stopProcess();
+      }
+    }
     setEngineState(prev => ({
       ...prev,
       isRunning: false,
       statusMessage: 'SCAN CANCELLED'
     }));
-    handleSendSerial("RESET");
   };
 
   const handleToggleMode = (mode) => {
     setEngineState(prev => ({ ...prev, mode }));
+    if (simulatorRef.current) {
+      simulatorRef.current.setMode(mode);
+    }
     handleSendSerial(mode === 'ENROLLMENT' ? 'MODE:ENROLL' : 'MODE:AUTH');
     if (mode === 'ENROLLMENT') {
       setActiveTab('enroll');
-    } else {
+    } else if (activeTab === 'enroll') {
       setActiveTab('dashboard');
+    }
+  };
+
+  const handleSelectTab = (tab) => {
+    setActiveTab(tab);
+    if (tab === 'enroll') {
+      setEngineState(prev => ({ ...prev, mode: 'ENROLLMENT' }));
+      if (simulatorRef.current) simulatorRef.current.setMode('ENROLLMENT');
+      handleSendSerial('MODE:ENROLL');
+    } else if (tab === 'auth' || tab === 'dashboard') {
+      setEngineState(prev => ({ ...prev, mode: 'AUTHENTICATION' }));
+      if (simulatorRef.current) simulatorRef.current.setMode('AUTHENTICATION');
+      handleSendSerial('MODE:AUTH');
+    }
+  };
+
+  const handleAuthSuccess = () => {
+    sounds.playAccessGranted();
+    if (simulatorRef.current) {
+      simulatorRef.current.unlockAuthorized(5);
+    }
+    // Also notify physical Arduino via serial if connected
+    if (isHardwareConnected) {
+      handleSendSerial("CMD:UNLOCK AUTH_AUTHORIZED");
     }
   };
 
   return (
     <div className="min-h-screen bg-[#05070a] text-slate-100 flex flex-col font-sans selection:bg-cyan-500/30 selection:text-cyan-200">
       
-      {/* Top Navigation Bar with USB Connect */}
+      {/* Top Header */}
       <Header
         isHardwareConnected={isHardwareConnected}
         hardwareStatusMsg={hardwareStatusMsg}
@@ -272,11 +353,12 @@ export default function App() {
         {/* Left Sidebar */}
         <Sidebar 
           activeTab={activeTab} 
-          onSelectTab={setActiveTab} 
+          onSelectTab={handleSelectTab} 
         />
 
         {/* Dynamic View Panel */}
         <main className="flex-1 overflow-y-auto p-6 lg:p-8 space-y-6">
+          
           {activeTab === 'dashboard' && (
             <DashboardView
               engineState={engineState}
@@ -298,6 +380,9 @@ export default function App() {
               onConnectHardware={handleConnectHardware}
               onStart={handleStartScan}
               onStop={handleStopScan}
+              registeredUsers={registeredUsers}
+              onRefreshUsers={loadRegisteredUsers}
+              onAuthSuccess={handleAuthSuccess}
             />
           )}
 
@@ -308,9 +393,13 @@ export default function App() {
               onConnectHardware={handleConnectHardware}
               onStartEnrollment={() => {
                 handleToggleMode('ENROLLMENT');
-                handleStartScan();
+                handleStartScan('ENROLLMENT');
               }}
               onStopEnrollment={handleStopScan}
+              onUserRegistered={(newUser) => {
+                loadRegisteredUsers();
+                setActiveTab('auth');
+              }}
             />
           )}
 
@@ -338,6 +427,7 @@ export default function App() {
           {activeTab === 'settings' && (
             <SettingsView />
           )}
+
         </main>
 
       </div>

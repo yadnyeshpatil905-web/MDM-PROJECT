@@ -92,7 +92,7 @@ export default function DashboardView({
                    state === 'CAPTURING' ? 'STATUS: MEASURING' : 'STATUS: LOCKED'}
                 </span>
                 <span className="text-xs font-mono text-zinc-500">
-                  Servo: {servoAngle}°
+                  Servo: {servoAngle}Â°
                 </span>
               </div>
 
@@ -145,7 +145,7 @@ export default function DashboardView({
           <div className="flex items-center justify-between mb-3 text-xs font-mono text-zinc-400">
             <div className="flex items-center space-x-2">
               <Activity className="w-3.5 h-3.5 text-zinc-300" />
-              <span className="font-semibold text-zinc-200">HW-827 PPG Oscilloscope (Analog Pin A0)</span>
+              <span className="font-semibold text-zinc-200">Heart Sensor (Pulse Sensor) Oscilloscope (Analog Pin A0)</span>
             </div>
             <div className="flex items-center space-x-4">
               <span className="text-zinc-500">Signal: <strong className="text-zinc-300 font-normal">{signalQuality}</strong></span>

@@ -50,14 +50,14 @@ export default function LockStatusCard({
                 isDisconnected ? 'bg-zinc-900 border-zinc-800 text-zinc-400' :
                 'bg-zinc-900 border-zinc-700 text-zinc-300'
               }`}>
-                {isUnlocked ? 'UNLOCKED (90°)' : 
+                {isUnlocked ? 'UNLOCKED (90Â°)' : 
                  isDenied ? 'ACCESS DENIED' : 
                  isDisconnected ? 'ARDUINO OFFLINE' : 
-                 state === 'CAPTURING' ? 'RECORDING SENSOR' : 'LOCKED (0°)'}
+                 state === 'CAPTURING' ? 'RECORDING SENSOR' : 'LOCKED (0Â°)'}
               </span>
 
               <span className="text-[11px] font-mono text-zinc-500">
-                Servo: {servoAngle}°
+                Servo: {servoAngle}Â°
               </span>
             </div>
 
@@ -120,12 +120,12 @@ export default function LockStatusCard({
 
           <div className="flex items-center space-x-1.5">
             <span className="text-zinc-500">Servo:</span>
-            <span className="text-zinc-300">{servoAngle}° ({isUnlocked ? 'Unlocked' : 'Locked'})</span>
+            <span className="text-zinc-300">{servoAngle}Â° ({isUnlocked ? 'Unlocked' : 'Locked'})</span>
           </div>
 
           <div className="flex items-center space-x-1.5">
             <span className="text-zinc-500">PPG:</span>
-            <span className="text-zinc-300">HW-827 (A0)</span>
+            <span className="text-zinc-300">Pulse Sensor (A0)</span>
           </div>
         </div>
 
