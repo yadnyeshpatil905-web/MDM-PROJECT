@@ -20,7 +20,8 @@ import {
   FolderOpen,
   ArrowRight,
   Usb,
-  Key
+  Key,
+  Delete
 } from 'lucide-react';
 import PpgWaveformCanvas from '../components/PpgWaveformCanvas';
 import TemplateComparisonCard from '../components/TemplateComparisonCard';
@@ -281,6 +282,7 @@ export default function AuthenticationView({
       }
     } catch (err) {
       setIsSubmitting(false);
+      setEnteredPin('');
       const data = err.data || {};
       
       if (data.lockedOut) {
@@ -306,9 +308,50 @@ export default function AuthenticationView({
     }
   };
 
+  const handleKeypadBackspace = () => {
+    setEnteredPin(prev => prev.slice(0, -1));
+  };
+
   const handleKeypadClear = () => {
     setEnteredPin('');
   };
+
+  const handleCancelPinChallenge = () => {
+    setChallengeData(null);
+    setEnteredPin('');
+    setAuthStage(SYSTEM_STATES.LOCKED);
+    setStageMessage('Authentication cancelled. Place finger on sensor to begin.');
+  };
+
+  // Physical Keyboard Support for Vault PIN Entry
+  useEffect(() => {
+    if (authStage !== SYSTEM_STATES.PIN_REQUIRED && authStage !== SYSTEM_STATES.PIN_FAILED) {
+      return;
+    }
+
+    const handleKeyDown = (e) => {
+      if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target?.tagName)) return;
+
+      if (e.key >= '0' && e.key <= '9') {
+        e.preventDefault();
+        handleKeypadPress(e.key);
+      } else if (e.key === 'Backspace') {
+        e.preventDefault();
+        handleKeypadBackspace();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (enteredPin.length >= 4 && !isSubmitting && lockoutSec === 0) {
+          handleVerifyPin();
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        handleKeypadClear();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [authStage, enteredPin, isSubmitting, lockoutSec]);
 
   const selectedUser = registeredUsers.find(u => u.id === selectedUserId);
 
@@ -467,9 +510,9 @@ export default function AuthenticationView({
               </p>
             </div>
 
-            {/* Masked PIN Display */}
-            <div className="flex justify-center items-center space-x-3 py-2">
-              {[0, 1, 2, 3].map((idx) => {
+            {/* Masked PIN Display (dynamically expands for 4-8 digits) */}
+            <div className="flex justify-center items-center space-x-2.5 py-2">
+              {Array.from({ length: Math.max(4, Math.min(8, enteredPin.length)) }).map((_, idx) => {
                 const isFilled = enteredPin.length > idx;
                 return (
                   <div
@@ -502,10 +545,12 @@ export default function AuthenticationView({
 
               <button
                 type="button"
-                onClick={handleKeypadClear}
-                className="py-3 rounded-lg bg-zinc-900/60 hover:bg-zinc-800 border border-zinc-800 font-mono text-xs text-zinc-400 active:scale-95 transition-all"
+                onClick={handleKeypadBackspace}
+                title="Backspace"
+                disabled={isSubmitting || enteredPin.length === 0}
+                className="py-3 rounded-lg bg-zinc-900/60 hover:bg-zinc-800 border border-zinc-800 font-mono text-xs text-zinc-400 hover:text-zinc-200 active:scale-95 transition-all flex items-center justify-center disabled:opacity-30 cursor-pointer"
               >
-                Clear
+                <Delete className="w-4 h-4" />
               </button>
 
               <button
@@ -524,6 +569,28 @@ export default function AuthenticationView({
                 className="py-3 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-sans text-xs font-bold active:scale-95 transition-all cursor-pointer disabled:opacity-40"
               >
                 {isSubmitting ? 'Verifying...' : 'Unlock'}
+              </button>
+            </div>
+
+            {/* Clear & Cancel Actions */}
+            <div className="flex items-center justify-center space-x-4 pt-1">
+              <button
+                type="button"
+                onClick={handleKeypadClear}
+                disabled={enteredPin.length === 0}
+                className="text-[11px] font-mono text-zinc-500 hover:text-zinc-300 transition-colors disabled:opacity-0 cursor-pointer"
+              >
+                Clear Digits
+              </button>
+
+              <span className="text-zinc-700">•</span>
+
+              <button
+                type="button"
+                onClick={handleCancelPinChallenge}
+                className="text-[11px] font-mono text-zinc-500 hover:text-rose-400 transition-colors cursor-pointer"
+              >
+                Cancel & Rescan Fingerprint
               </button>
             </div>
 
