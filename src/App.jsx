@@ -66,12 +66,25 @@ export default function App() {
   const simulatorRef = useRef(null);
   const socketRef = useRef(null);
 
+  // Sync enrolled template across engineState and simulator
+  const handleSetEnrolledTemplate = (template) => {
+    if (Array.isArray(template) && template.length === 20) {
+      setEngineState(prev => ({ ...prev, enrolledTemplate: template }));
+      if (simulatorRef.current) {
+        simulatorRef.current.setEnrolledTemplate(template);
+      }
+    }
+  };
+
   // Fetch registered users from backend on load
   const loadRegisteredUsers = async () => {
     try {
       const res = await api.getUsers();
       if (res && res.users) {
         setRegisteredUsers(res.users);
+        if (res.users.length > 0 && res.users[0].enrolledTemplate) {
+          handleSetEnrolledTemplate(res.users[0].enrolledTemplate);
+        }
       }
     } catch (err) {
       console.warn('Backend users load error:', err.message);
@@ -432,9 +445,7 @@ export default function App() {
               onRefreshUsers={loadRegisteredUsers}
               onAuthSuccess={handleAuthSuccess}
               onOpenVaultFolder={() => setActiveTab('vault')}
-              onSetSimulatorTarget={(target) => {
-                if (simulatorRef.current) simulatorRef.current.setTargetResult(target);
-              }}
+              onSetEnrolledTemplate={handleSetEnrolledTemplate}
             />
           )}
 
@@ -461,6 +472,9 @@ export default function App() {
               onStopEnrollment={handleStopScan}
               onUserRegistered={(newUser) => {
                 loadRegisteredUsers();
+                if (newUser?.templateData) {
+                  handleSetEnrolledTemplate(newUser.templateData);
+                }
                 setActiveTab('auth');
               }}
               onNavigateToAuth={() => setActiveTab('auth')}

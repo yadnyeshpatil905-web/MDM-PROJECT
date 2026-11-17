@@ -230,7 +230,7 @@ export default function EnrollmentView({
       setEnrolledUser(response);
       setWizardStep(3);
       setStatusMessage(`User ${response.fullName} successfully registered with Multi-Authenticator credentials!`);
-      onUserRegistered(response);
+      onUserRegistered({ ...response, templateData: finalTemplate });
 
       // Reset form
       setFormData({

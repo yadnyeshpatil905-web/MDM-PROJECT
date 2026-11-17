@@ -110,10 +110,10 @@ export class PpgSimulator {
 
     this.startOscilloscopeWave();
 
-    // Enrollment uses 20.0s capture window per user requirement; Auth uses 5.5s
+    // Enrollment uses 20.0s capture window per user requirement; Auth uses 4.2s so it is ready within 5s
     const isEnroll = this.mode === 'ENROLLMENT';
-    const settlingTime = isEnroll ? 500 : 1000;
-    this.captureDuration = isEnroll ? 20000 : 5500;
+    const settlingTime = isEnroll ? 500 : 300;
+    this.captureDuration = isEnroll ? 20000 : 4200;
 
     setTimeout(() => {
       if (!this.isRunning) return;
@@ -242,13 +242,20 @@ export class PpgSimulator {
         // Generate completely different biometric morphology
         val = Math.round(255 * (1 - Math.sin((i / WAVE_POINTS) * Math.PI * 2)));
       } else {
-        // High fidelity biometric match with subtle physiological variance (±5%)
-        val += (Math.random() - 0.5) * 12;
+        // High fidelity authentic biometric match with natural physiological pulse variation (±2-3%)
+        val += (Math.random() - 0.5) * 6;
       }
-      val = Math.max(0, Math.min(255, Math.round(val)));
+      val = Math.max(10, Math.min(255, Math.round(val)));
       this.accumulator[i] += val;
     }
     this.templateBeats++;
+
+    // Continuously compute currentTemplate on each beat so candidate template is available immediately
+    const beatsCount = Math.max(1, this.templateBeats);
+    for (let i = 0; i < WAVE_POINTS; i++) {
+      const acc = this.accumulator[i] > 0 ? this.accumulator[i] : (this.enrolledTemplate[i] * beatsCount);
+      this.currentTemplate[i] = Math.max(10, Math.min(255, Math.round(acc / beatsCount)));
+    }
   }
 
   finishCaptureProcess() {

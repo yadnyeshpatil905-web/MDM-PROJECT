@@ -19,13 +19,28 @@ router.get('/users', async (req, res) => {
     const safeUsers = await Promise.all(profiles.map(async (p) => {
       const bio = await repository.findBiometricCredentialByUserId(p.id);
       const vault = await repository.findVaultCredentialByUserId(p.id);
+      let enrolledTemplate = null;
+      if (bio?.template_data) {
+        if (typeof bio.template_data === 'string') {
+          try {
+            enrolledTemplate = JSON.parse(bio.template_data);
+          } catch (e) {
+            enrolledTemplate = null;
+          }
+        } else if (Array.isArray(bio.template_data)) {
+          enrolledTemplate = bio.template_data;
+        } else if (typeof bio.template_data === 'object') {
+          enrolledTemplate = Object.values(bio.template_data);
+        }
+      }
       return {
         id: p.id,
         fullName: p.full_name,
         email: p.email,
         createdAt: p.created_at,
         isBiometricEnrolled: !!bio,
-        isPinConfigured: !!vault
+        isPinConfigured: !!vault,
+        enrolledTemplate
       };
     }));
     res.json({ success: true, users: safeUsers });

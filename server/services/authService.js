@@ -329,9 +329,21 @@ export class AuthService {
       };
     }
 
+    let enrolledTemplate = credential.template_data;
+    if (typeof enrolledTemplate === 'string') {
+      try {
+        enrolledTemplate = JSON.parse(enrolledTemplate);
+      } catch (e) {
+        // keep as is
+      }
+    }
+    if (enrolledTemplate && typeof enrolledTemplate === 'object' && !Array.isArray(enrolledTemplate)) {
+      enrolledTemplate = Object.values(enrolledTemplate);
+    }
+
     // Compare morphological curves
     try {
-      const matchResult = BiometricService.compareTemplates(sampleTemplate, credential.template_data);
+      const matchResult = BiometricService.compareTemplates(sampleTemplate, enrolledTemplate);
       
       if (!matchResult.matched || matchResult.score < this.config.MATCH_THRESHOLD) {
         // Biometric verification failed

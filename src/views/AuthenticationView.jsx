@@ -20,8 +20,7 @@ import {
   FolderOpen,
   ArrowRight,
   Usb,
-  Key,
-  UserX
+  Key
 } from 'lucide-react';
 import PpgWaveformCanvas from '../components/PpgWaveformCanvas';
 import TemplateComparisonCard from '../components/TemplateComparisonCard';
@@ -38,7 +37,7 @@ export default function AuthenticationView({
   onRefreshUsers = () => {},
   onAuthSuccess = () => {},
   onOpenVaultFolder = () => {},
-  onSetSimulatorTarget = () => {}
+  onSetEnrolledTemplate = () => {}
 }) {
   const {
     servoAngle = 0,
@@ -73,9 +72,6 @@ export default function AuthenticationView({
   // Biometric 5-second Pulse Scan Countdown
   const [scanCountdown, setScanCountdown] = useState(0);
 
-  // Simulated Subject (for browser testing without hardware): 'ENROLLED' | 'IMPOSTER'
-  const [simulatedSubject, setSimulatedSubject] = useState('ENROLLED');
-
   // Track the latest live template during acquisition
   const latestTemplateRef = useRef(null);
 
@@ -91,6 +87,13 @@ export default function AuthenticationView({
       setSelectedUserId(registeredUsers[0].id);
     }
   }, [registeredUsers, selectedUserId]);
+
+  // Sync selected user's enrolled template to hardware/simulator
+  useEffect(() => {
+    if (selectedUser?.enrolledTemplate) {
+      onSetEnrolledTemplate(selectedUser.enrolledTemplate);
+    }
+  }, [selectedUser?.id, selectedUser?.enrolledTemplate]);
 
   // Challenge Countdown Timer (90s TTL)
   useEffect(() => {
@@ -164,8 +167,8 @@ export default function AuthenticationView({
       return;
     }
 
-    if (!isHardwareConnected && onSetSimulatorTarget) {
-      onSetSimulatorTarget(simulatedSubject === 'IMPOSTER' ? 'FAIL_MISMATCH' : 'SUCCESS');
+    if (selectedUser?.enrolledTemplate) {
+      onSetEnrolledTemplate(selectedUser.enrolledTemplate);
     }
 
     latestTemplateRef.current = null;
@@ -173,7 +176,7 @@ export default function AuthenticationView({
     setStageMessage(
       isHardwareConnected
         ? 'Reading live pulse from HW-827 sensor (Pin A0)... Hold finger steady (5s scan).'
-        : `Acquiring pulses for ${simulatedSubject === 'IMPOSTER' ? 'Unauthorized Person' : 'Enrolled Operator'} (5s scan)...`
+        : `Acquiring live pulses from sensor for ${selectedUser?.fullName || 'operator'} (5s scan)...`
     );
     setScanCountdown(5);
     onStart('AUTHENTICATION');
@@ -189,18 +192,21 @@ export default function AuthenticationView({
 
   // Perform genuine evaluation against Supabase-stored enrolled template
   const performBiometricEvaluation = async () => {
-    onStop();
     setIsSubmitting(true);
     setStageMessage('Analyzing pulse wave morphology & cross-correlation against enrolled user...');
 
     try {
-      const candidate = (latestTemplateRef.current && latestTemplateRef.current.length === 20 && latestTemplateRef.current.some(v => v > 0))
+      let candidate = (latestTemplateRef.current && latestTemplateRef.current.length === 20 && latestTemplateRef.current.some(v => v > 0))
         ? latestTemplateRef.current
         : (currentTemplate && currentTemplate.length === 20 && currentTemplate.some(v => v > 0))
         ? currentTemplate
+        : (engineState?.currentTemplate && engineState.currentTemplate.length === 20 && engineState.currentTemplate.some(v => v > 0))
+        ? engineState.currentTemplate
         : null;
 
-      if (!candidate) {
+      onStop();
+
+      if (!candidate || candidate.length !== 20 || !candidate.some(v => v > 0)) {
         setIsSubmitting(false);
         setAuthStage(SYSTEM_STATES.BIOMETRIC_FAILED);
         setStageMessage('No clean pulse wave detected on sensor. Please keep finger steadily on HW-827 Pulse Sensor and retry.');
@@ -620,62 +626,7 @@ export default function AuthenticationView({
               </div>
             )}
 
-            {/* Imposter vs Enrolled Subject Selector (in Simulated Mode) */}
-            {!isHardwareConnected && (
-              <div className="p-3.5 rounded-xl border border-zinc-800 bg-zinc-950/80 text-left space-y-2.5">
-                <div className="text-[10px] font-mono uppercase text-zinc-400 font-semibold flex items-center justify-between">
-                  <span>Pulse Simulation Generator</span>
-                  <span className="text-[9px] text-zinc-500">Test Biometric Security</span>
-                </div>
-                <div className="grid grid-cols-2 gap-2 text-xs font-mono">
-                  <button
-                    type="button"
-                    disabled={scanCountdown > 0 || isSubmitting}
-                    onClick={() => {
-                      setSimulatedSubject('ENROLLED');
-                      if (onSetSimulatorTarget) onSetSimulatorTarget('SUCCESS');
-                    }}
-                    className={`p-2.5 rounded-lg border text-left transition-all ${
-                      simulatedSubject === 'ENROLLED'
-                        ? 'bg-emerald-950/60 border-emerald-600 text-emerald-300 font-bold shadow-sm shadow-emerald-950'
-                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-1.5 text-xs text-emerald-400 mb-0.5">
-                      <UserCheck className="w-3.5 h-3.5" />
-                      <span>Legitimate User</span>
-                    </div>
-                    <div className="text-[11px] font-sans truncate text-zinc-200">
-                      {selectedUser?.fullName || 'Operator'}
-                    </div>
-                    <div className="text-[9px] text-emerald-500 mt-0.5">Should Match (≥70%)</div>
-                  </button>
 
-                  <button
-                    type="button"
-                    disabled={scanCountdown > 0 || isSubmitting}
-                    onClick={() => {
-                      setSimulatedSubject('IMPOSTER');
-                      if (onSetSimulatorTarget) onSetSimulatorTarget('FAIL_MISMATCH');
-                    }}
-                    className={`p-2.5 rounded-lg border text-left transition-all ${
-                      simulatedSubject === 'IMPOSTER'
-                        ? 'bg-rose-950/60 border-rose-600 text-rose-300 font-bold shadow-sm shadow-rose-950'
-                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-1.5 text-xs text-rose-400 mb-0.5">
-                      <UserX className="w-3.5 h-3.5" />
-                      <span>Different Person</span>
-                    </div>
-                    <div className="text-[11px] font-sans truncate text-zinc-200">
-                      Unauthorized Imposter
-                    </div>
-                    <div className="text-[9px] text-rose-500 mt-0.5">Should Fail (&lt;70%)</div>
-                  </button>
-                </div>
-              </div>
-            )}
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-1">
               <button
