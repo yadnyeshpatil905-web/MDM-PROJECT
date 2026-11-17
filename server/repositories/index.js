@@ -8,6 +8,9 @@ import { isSupabaseConfigured } from '../services/supabaseClient.js';
  * otherwise transparently falls back to InMemoryRepositoryManager.
  */
 export function getActiveRepository() {
+  if (process.env.NODE_ENV === 'test') {
+    return inMemoryRepo;
+  }
   if (isSupabaseConfigured()) {
     return supabaseRepository;
   }

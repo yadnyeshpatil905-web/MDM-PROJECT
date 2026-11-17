@@ -23,7 +23,7 @@ bool isEnrollMode = (ENROLL_MODE == 1);
 
 // ================= SETTINGS =================
 #define SAMPLE_INTERVAL 10
-#define CAPTURE_TIME    10000UL
+#define CAPTURE_TIME    20000UL
 
 #define MIN_IBI         400
 #define MAX_IBI         1333
@@ -509,8 +509,9 @@ bool capturePPG() {
 
     processPPG(raw);
 
-    // Fast completion: once 3+ beats are acquired and at least 3.0s elapsed, finish!
-    if (templateBeats >= 3 && (millis() - start >= 3000UL)) {
+    // Fast completion: once 3+ beats are acquired and at least 20.0s elapsed in enroll mode (or 3.0s in auth)
+    unsigned long minCaptureDuration = isEnrollMode ? 20000UL : 3000UL;
+    if (templateBeats >= 3 && (millis() - start >= minCaptureDuration)) {
       break;
     }
   }

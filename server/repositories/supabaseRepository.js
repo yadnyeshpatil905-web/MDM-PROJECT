@@ -19,16 +19,39 @@ export class SupabaseRepositoryManager {
   }
 
   // --- Profiles ---
-  async createProfile({ id, full_name, email }) {
+  async createProfile({ id, full_name, email, password }) {
     const client = this.getClient();
-    const profileId = id || CryptoService.generateId();
+    let profileId = id || CryptoService.generateId();
+
+    // If password is provided and admin API is available (with service_role key),
+    // create the user in Supabase auth.users so foreign key constraint references pass
+    if (password && client.auth?.admin) {
+      try {
+        const { data: authUser, error: authErr } = await client.auth.admin.createUser({
+          email: email.toLowerCase().trim(),
+          password: password,
+          email_confirm: true,
+          user_metadata: { full_name: full_name.trim() }
+        });
+        if (!authErr && authUser?.user?.id) {
+          profileId = authUser.user.id;
+        } else if (authErr && (authErr.message?.toLowerCase().includes('already') || authErr.message?.toLowerCase().includes('exists'))) {
+          const { data: userList } = await client.auth.admin.listUsers();
+          const found = userList?.users?.find(u => u.email?.toLowerCase() === email.toLowerCase().trim());
+          if (found) profileId = found.id;
+        }
+      } catch (err) {
+        console.warn('[SupabaseRepository] auth.admin note:', err.message);
+      }
+    }
+
     const { data, error } = await client
       .from('profiles')
-      .insert({
+      .upsert({
         id: profileId,
         full_name: full_name.trim(),
         email: email.toLowerCase().trim()
-      })
+      }, { onConflict: 'id' })
       .select()
       .single();
 

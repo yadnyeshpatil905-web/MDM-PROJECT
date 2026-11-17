@@ -110,10 +110,10 @@ export class PpgSimulator {
 
     this.startOscilloscopeWave();
 
-    // Fast acquisition: Enrollment needs only 3.0s capture; Auth uses 5.0s
+    // Enrollment uses 20.0s capture window per user requirement; Auth uses 5.5s
     const isEnroll = this.mode === 'ENROLLMENT';
-    const settlingTime = isEnroll ? 400 : 1000;
-    this.captureDuration = isEnroll ? 3000 : 5500;
+    const settlingTime = isEnroll ? 500 : 1000;
+    this.captureDuration = isEnroll ? 20000 : 5500;
 
     setTimeout(() => {
       if (!this.isRunning) return;

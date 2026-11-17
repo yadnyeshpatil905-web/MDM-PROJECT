@@ -1,3 +1,13 @@
+const initialNodeEnv = process.env.NODE_ENV;
+try {
+  process.loadEnvFile?.();
+} catch (e) {
+  // .env file not present or already supplied via environment
+}
+if (initialNodeEnv === 'test') {
+  process.env.NODE_ENV = 'test';
+}
+
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -5,6 +15,7 @@ import cors from 'cors';
 import apiRouter from './routes/api.js';
 import { deviceService } from './services/deviceService.js';
 import { authService } from './services/authService.js';
+import { isSupabaseConfigured } from './services/supabaseClient.js';
 
 const app = express();
 const server = createServer(app);
@@ -64,7 +75,11 @@ if (!isTest) {
   server.listen(PORT, () => {
     console.log(`===================================================`);
     console.log(`PPG Biometric Lock Backend running on port ${PORT}`);
-    console.log(`Supabase-Ready Repository & Two-Step Auth Online`);
+    if (isSupabaseConfigured()) {
+      console.log(`Database: Connected to Supabase Cloud (${process.env.SUPABASE_URL})`);
+    } else {
+      console.log(`Database: IN-MEMORY MODE (Set SUPABASE_URL & SUPABASE_SERVICE_ROLE_KEY in .env to connect Supabase)`);
+    }
     console.log(`===================================================`);
   });
 }

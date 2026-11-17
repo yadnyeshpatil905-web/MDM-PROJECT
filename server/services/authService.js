@@ -141,19 +141,22 @@ export class AuthService {
     const profile = await repository.createProfile({
       id: userId,
       full_name: fullName.trim(),
-      email: cleanEmail
+      email: cleanEmail,
+      password: password
     });
+
+    const finalUserId = profile.id || userId;
 
     // 8. Hash Vault PIN (never store raw PIN)
     const pinHash = CryptoService.hashPin(pin);
     await repository.createVaultCredential({
-      user_id: userId,
+      user_id: finalUserId,
       pin_hash: pinHash
     });
 
     // 9. Store Biometric Template associated with user ID
     await repository.createBiometricCredential({
-      user_id: userId,
+      user_id: finalUserId,
       template_data: templateData,
       template_version: 'v1.0-morphology-20',
       status: 'active'
@@ -162,22 +165,26 @@ export class AuthService {
     // 9b. Store Raw HW-827 Pulse Sensor Biometric Recording if provided
     let rawRecordingId = null;
     if (rawRecording) {
-      const savedRecording = await repository.createBiometricRecording({
-        user_id: userId,
-        pulse_samples: rawRecording.pulse_samples || rawRecording.raw_samples || rawRecording.red_samples,
-        raw_samples: rawRecording.raw_samples || rawRecording.pulse_samples || rawRecording.red_samples,
-        red_samples: rawRecording.red_samples || rawRecording.pulse_samples,
-        ir_samples: rawRecording.ir_samples || rawRecording.pulse_samples,
-        sample_rate: rawRecording.sample_rate,
-        sample_count: rawRecording.sample_count,
-        device_info: rawRecording.device_info || 'HW-827 Pulse Sensor'
-      });
-      rawRecordingId = savedRecording.id;
+      try {
+        const savedRecording = await repository.createBiometricRecording({
+          user_id: finalUserId,
+          pulse_samples: rawRecording.pulse_samples || rawRecording.raw_samples || rawRecording.red_samples,
+          raw_samples: rawRecording.raw_samples || rawRecording.pulse_samples || rawRecording.red_samples,
+          red_samples: rawRecording.red_samples || rawRecording.pulse_samples,
+          ir_samples: rawRecording.ir_samples || rawRecording.pulse_samples,
+          sample_rate: rawRecording.sample_rate,
+          sample_count: rawRecording.sample_count,
+          device_info: rawRecording.device_info || 'HW-827 Pulse Sensor'
+        });
+        rawRecordingId = savedRecording.id;
+      } catch (recErr) {
+        console.warn('[AuthService] createBiometricRecording notice (run 20261029000000_add_biometric_recordings.sql in Supabase):', recErr.message);
+      }
     }
 
     // 10. Record enrollment in audit logs
     await repository.createAuthAttempt({
-      user_id: userId,
+      user_id: finalUserId,
       biometric_result: BIOMETRIC_RESULTS.SUCCESS,
       pin_result: PIN_RESULTS.NOT_REQUIRED,
       final_result: FINAL_RESULTS.SUCCESS,
@@ -187,11 +194,11 @@ export class AuthService {
     });
 
     // Generate authenticated session for newly registered operator
-    const session = this.createSession(userId, cleanEmail);
+    const session = this.createSession(finalUserId, cleanEmail);
 
     return {
       success: true,
-      userId: profile.id,
+      userId: finalUserId,
       fullName: profile.full_name,
       email: profile.email,
       created_at: profile.created_at,
