@@ -54,6 +54,7 @@ export default function AuthenticationView({
 
   // Selected User for Multi-Auth
   const [selectedUserId, setSelectedUserId] = useState('');
+  const selectedUser = registeredUsers.find(u => u.id === selectedUserId);
   
   // Pipeline UI State:
   // NOT_CONNECTED | LOCKED | BIOMETRIC_PENDING | BIOMETRIC_FAILED | PIN_REQUIRED | PIN_FAILED | AUTHORIZED
@@ -352,8 +353,6 @@ export default function AuthenticationView({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [authStage, enteredPin, isSubmitting, lockoutSec]);
-
-  const selectedUser = registeredUsers.find(u => u.id === selectedUserId);
 
   const pipelineStages = [
     { id: SYSTEM_STATES.LOCKED, label: '1. Select Account', desc: 'Identity profile' },
