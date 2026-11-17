@@ -47,7 +47,7 @@ export default function App() {
     signalQuality: 'READY',
     signalAmplitude: 0,
     progress: 0,
-    waveBuffer: [],
+    waveBuffer: Array.from({ length: 120 }, (_, i) => ({ t: i, val: 512, ac: 0, isPeak: false })),
     enrolledTemplate: [
       35, 78, 142, 215, 255, 240, 195, 150, 120, 95,
       82, 105, 125, 110, 85, 65, 48, 38, 30, 25
@@ -145,7 +145,9 @@ export default function App() {
 
           // Real ADC microvoltage sample from Arduino pin A0
           if (updates.waveSample) {
-            newWaveBuffer.shift();
+            if (newWaveBuffer.length >= 120) {
+              newWaveBuffer.shift();
+            }
             newWaveBuffer.push({
               t: Date.now(),
               val: updates.waveSample.val,
@@ -268,15 +270,17 @@ export default function App() {
   const handleStartScan = (forcedMode = null) => {
     sounds.init();
     const currentMode = forcedMode || engineState.mode;
+    setEngineState(prev => ({
+      ...prev,
+      currentTemplate: new Array(20).fill(0),
+      matchScore: 0,
+      state: SYSTEM_STATES.BIOMETRIC_PENDING,
+      isRunning: true,
+      statusMessage: currentMode === 'ENROLLMENT'
+        ? 'HARDWARE ACTIVE • ENROLLMENT MODE: PLACE FINGER ON SENSOR'
+        : 'HARDWARE ACTIVE • PLACE FINGER ON HW-827 PULSE SENSOR'
+    }));
     if (isHardwareConnected) {
-      setEngineState(prev => ({
-        ...prev,
-        state: SYSTEM_STATES.BIOMETRIC_PENDING,
-        isRunning: true,
-        statusMessage: currentMode === 'ENROLLMENT'
-          ? 'HARDWARE ACTIVE • ENROLLMENT MODE: PLACE FINGER ON SENSOR'
-          : 'HARDWARE ACTIVE • PLACE FINGER ON HW-827 PULSE SENSOR'
-      }));
       if (currentMode === 'ENROLLMENT') {
         handleSendSerial("MODE:ENROLL");
       }
@@ -428,6 +432,9 @@ export default function App() {
               onRefreshUsers={loadRegisteredUsers}
               onAuthSuccess={handleAuthSuccess}
               onOpenVaultFolder={() => setActiveTab('vault')}
+              onSetSimulatorTarget={(target) => {
+                if (simulatorRef.current) simulatorRef.current.setTargetResult(target);
+              }}
             />
           )}
 

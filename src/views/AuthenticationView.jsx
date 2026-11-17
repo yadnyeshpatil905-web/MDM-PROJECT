@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Lock, 
   Unlock, 
@@ -20,7 +20,8 @@ import {
   FolderOpen,
   ArrowRight,
   Usb,
-  Key
+  Key,
+  UserX
 } from 'lucide-react';
 import PpgWaveformCanvas from '../components/PpgWaveformCanvas';
 import TemplateComparisonCard from '../components/TemplateComparisonCard';
@@ -36,7 +37,8 @@ export default function AuthenticationView({
   registeredUsers = [],
   onRefreshUsers = () => {},
   onAuthSuccess = () => {},
-  onOpenVaultFolder = () => {}
+  onOpenVaultFolder = () => {},
+  onSetSimulatorTarget = () => {}
 }) {
   const {
     servoAngle = 0,
@@ -67,6 +69,21 @@ export default function AuthenticationView({
   const [pinAttemptsRemaining, setPinAttemptsRemaining] = useState(null);
   const [lockoutSec, setLockoutSec] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Biometric 5-second Pulse Scan Countdown
+  const [scanCountdown, setScanCountdown] = useState(0);
+
+  // Simulated Subject (for browser testing without hardware): 'ENROLLED' | 'IMPOSTER'
+  const [simulatedSubject, setSimulatedSubject] = useState('ENROLLED');
+
+  // Track the latest live template during acquisition
+  const latestTemplateRef = useRef(null);
+
+  useEffect(() => {
+    if (currentTemplate && currentTemplate.length === 20 && currentTemplate.some(v => v > 0)) {
+      latestTemplateRef.current = [...currentTemplate];
+    }
+  }, [currentTemplate]);
 
   // Auto-select first registered user if none selected
   useEffect(() => {
@@ -113,8 +130,30 @@ export default function AuthenticationView({
     }
   }, [lockoutSec]);
 
-  // Factor 1: Biometric Fingerprint Verification
-  const handleVerifyBiometric = async () => {
+  // Factor 1: 5-Second Live Pulse Scan Countdown Effect
+  useEffect(() => {
+    let timer = null;
+    if (scanCountdown > 0) {
+      timer = setInterval(() => {
+        setScanCountdown(prev => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            setTimeout(() => {
+              performBiometricEvaluation();
+            }, 300);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [scanCountdown]);
+
+  // Trigger Biometric Verification Scan
+  const handleVerifyBiometric = () => {
     if (!selectedUserId) {
       setStageMessage('Please select a registered account first.');
       return;
@@ -125,49 +164,79 @@ export default function AuthenticationView({
       return;
     }
 
+    if (!isHardwareConnected && onSetSimulatorTarget) {
+      onSetSimulatorTarget(simulatedSubject === 'IMPOSTER' ? 'FAIL_MISMATCH' : 'SUCCESS');
+    }
+
+    latestTemplateRef.current = null;
     setAuthStage(SYSTEM_STATES.BIOMETRIC_PENDING);
-    setStageMessage('Acquiring fingerprint pulse morphology and verifying cross-correlation...');
+    setStageMessage(
+      isHardwareConnected
+        ? 'Reading live pulse from HW-827 sensor (Pin A0)... Hold finger steady (5s scan).'
+        : `Acquiring pulses for ${simulatedSubject === 'IMPOSTER' ? 'Unauthorized Person' : 'Enrolled Operator'} (5s scan)...`
+    );
+    setScanCountdown(5);
+    onStart('AUTHENTICATION');
+  };
+
+  const handleCancelScan = () => {
+    setScanCountdown(0);
+    setIsSubmitting(false);
+    onStop();
+    setAuthStage(SYSTEM_STATES.LOCKED);
+    setStageMessage('Pulse acquisition cancelled. Ready to scan again.');
+  };
+
+  // Perform genuine evaluation against Supabase-stored enrolled template
+  const performBiometricEvaluation = async () => {
+    onStop();
     setIsSubmitting(true);
-    onStart();
+    setStageMessage('Analyzing pulse wave morphology & cross-correlation against enrolled user...');
 
-    // Allow sensor or simulator a brief moment to stabilize and capture clean pulse
-    setTimeout(async () => {
-      try {
-        const sample = (currentTemplate && currentTemplate.length === 20 && currentTemplate.some(v => v > 0))
-          ? currentTemplate
-          : enrolledTemplate;
+    try {
+      const candidate = (latestTemplateRef.current && latestTemplateRef.current.length === 20 && latestTemplateRef.current.some(v => v > 0))
+        ? latestTemplateRef.current
+        : (currentTemplate && currentTemplate.length === 20 && currentTemplate.some(v => v > 0))
+        ? currentTemplate
+        : null;
 
-        const result = await api.verifyBiometric({
-          userId: selectedUserId,
-          sampleTemplate: sample,
-          isHardwareSample: isHardwareConnected
-        });
-
-        setIsSubmitting(false);
-
-        if (result.success) {
-          // Factor 1 Passed! Challenge created. Transition to Factor 2 PIN
-          setChallengeData({
-            challengeId: result.challengeId,
-            expiresInSec: result.expiresInSec
-          });
-          setChallengeCountdown(result.expiresInSec || 90);
-          setAuthStage(SYSTEM_STATES.PIN_REQUIRED);
-          setStageMessage(`Factor 1 Verified (${result.score}% match). Now enter your secret Vault PIN to unlock.`);
-          setEnteredPin('');
-        } else {
-          if (result.lockedOut) {
-            setLockoutSec(result.remainingSec || 300);
-          }
-          setAuthStage(SYSTEM_STATES.BIOMETRIC_FAILED);
-          setStageMessage(result.failureReason || 'Biometric verification failed.');
-        }
-      } catch (err) {
+      if (!candidate) {
         setIsSubmitting(false);
         setAuthStage(SYSTEM_STATES.BIOMETRIC_FAILED);
-        setStageMessage(err.message || 'Error communicating with verification service.');
+        setStageMessage('No clean pulse wave detected on sensor. Please keep finger steadily on HW-827 Pulse Sensor and retry.');
+        return;
       }
-    }, 1200);
+
+      const result = await api.verifyBiometric({
+        userId: selectedUserId,
+        sampleTemplate: candidate,
+        isHardwareSample: isHardwareConnected
+      });
+
+      setIsSubmitting(false);
+
+      if (result.success) {
+        // Factor 1 Passed!
+        setChallengeData({
+          challengeId: result.challengeId,
+          expiresInSec: result.expiresInSec
+        });
+        setChallengeCountdown(result.expiresInSec || 90);
+        setAuthStage(SYSTEM_STATES.PIN_REQUIRED);
+        setStageMessage(`✓ Factor 1 Verified (${result.score}% match)! Pulse matched ${selectedUser?.fullName || 'operator'}. Enter Vault PIN.`);
+        setEnteredPin('');
+      } else {
+        if (result.lockedOut) {
+          setLockoutSec(result.remainingSec || 300);
+        }
+        setAuthStage(SYSTEM_STATES.BIOMETRIC_FAILED);
+        setStageMessage(result.failureReason || `Biometric mismatch (${result.score || 0}% match). This pulse does not match ${selectedUser?.fullName || 'enrolled operator'}. Access Denied.`);
+      }
+    } catch (err) {
+      setIsSubmitting(false);
+      setAuthStage(SYSTEM_STATES.BIOMETRIC_FAILED);
+      setStageMessage(err.message || 'Error communicating with verification service.');
+    }
   };
 
   // Factor 2: Backend PIN Verification
@@ -313,7 +382,7 @@ export default function AuthenticationView({
           <div className="flex items-center space-x-2">
             <select
               value={selectedUserId}
-              disabled={authStage === SYSTEM_STATES.PIN_REQUIRED || isRunning}
+              disabled={authStage === SYSTEM_STATES.PIN_REQUIRED || isRunning || scanCountdown > 0}
               onChange={(e) => {
                 setSelectedUserId(e.target.value);
                 setAuthStage(SYSTEM_STATES.LOCKED);
@@ -452,10 +521,6 @@ export default function AuthenticationView({
               </button>
             </div>
 
-            <div className="text-[11px] font-mono text-zinc-500 pt-2">
-              Note: Default demo PIN for Alex Morgan is <strong className="text-amber-400">1234</strong>.
-            </div>
-
           </div>
 
         ) : authStage === SYSTEM_STATES.AUTHORIZED ? (
@@ -507,7 +572,7 @@ export default function AuthenticationView({
           /* =======================================================
              FACTOR 1: FINGERPRINT / BIOMETRIC SCAN SCREEN
              ======================================================= */
-          <div className="text-center space-y-4 max-w-md mx-auto">
+          <div className="text-center space-y-5 max-w-md mx-auto">
             <div className="w-16 h-16 mx-auto rounded-2xl bg-zinc-900 border border-zinc-700 flex items-center justify-center text-zinc-200">
               {authStage === SYSTEM_STATES.BIOMETRIC_FAILED ? (
                 <XCircle className="w-8 h-8 text-rose-400" />
@@ -528,21 +593,110 @@ export default function AuthenticationView({
               </p>
             </div>
 
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+            {/* 5-Second Scan Active Banner with Live Countdown */}
+            {scanCountdown > 0 && (
+              <div className="p-4 rounded-xl border border-cyan-800/80 bg-gradient-to-r from-cyan-950/70 to-zinc-950 flex items-center justify-between text-left">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 rounded-full bg-cyan-500/20 border border-cyan-500/50 flex items-center justify-center text-cyan-400 font-mono font-bold text-base animate-pulse shrink-0">
+                    {scanCountdown}s
+                  </div>
+                  <div>
+                    <div className="text-xs font-mono font-bold text-cyan-300 uppercase tracking-wider">
+                      Recording Live Optical Pulses
+                    </div>
+                    <div className="text-xs text-zinc-400 mt-0.5">
+                      Measuring arterial morphology on HW-827 sensor... Hold finger still.
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleCancelScan}
+                  className="px-3 py-1.5 rounded-lg bg-rose-950/80 hover:bg-rose-900 border border-rose-800 text-rose-300 font-mono text-xs transition-colors shrink-0"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+
+            {/* Imposter vs Enrolled Subject Selector (in Simulated Mode) */}
+            {!isHardwareConnected && (
+              <div className="p-3.5 rounded-xl border border-zinc-800 bg-zinc-950/80 text-left space-y-2.5">
+                <div className="text-[10px] font-mono uppercase text-zinc-400 font-semibold flex items-center justify-between">
+                  <span>Pulse Simulation Generator</span>
+                  <span className="text-[9px] text-zinc-500">Test Biometric Security</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                  <button
+                    type="button"
+                    disabled={scanCountdown > 0 || isSubmitting}
+                    onClick={() => {
+                      setSimulatedSubject('ENROLLED');
+                      if (onSetSimulatorTarget) onSetSimulatorTarget('SUCCESS');
+                    }}
+                    className={`p-2.5 rounded-lg border text-left transition-all ${
+                      simulatedSubject === 'ENROLLED'
+                        ? 'bg-emerald-950/60 border-emerald-600 text-emerald-300 font-bold shadow-sm shadow-emerald-950'
+                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-1.5 text-xs text-emerald-400 mb-0.5">
+                      <UserCheck className="w-3.5 h-3.5" />
+                      <span>Legitimate User</span>
+                    </div>
+                    <div className="text-[11px] font-sans truncate text-zinc-200">
+                      {selectedUser?.fullName || 'Operator'}
+                    </div>
+                    <div className="text-[9px] text-emerald-500 mt-0.5">Should Match (≥70%)</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={scanCountdown > 0 || isSubmitting}
+                    onClick={() => {
+                      setSimulatedSubject('IMPOSTER');
+                      if (onSetSimulatorTarget) onSetSimulatorTarget('FAIL_MISMATCH');
+                    }}
+                    className={`p-2.5 rounded-lg border text-left transition-all ${
+                      simulatedSubject === 'IMPOSTER'
+                        ? 'bg-rose-950/60 border-rose-600 text-rose-300 font-bold shadow-sm shadow-rose-950'
+                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-1.5 text-xs text-rose-400 mb-0.5">
+                      <UserX className="w-3.5 h-3.5" />
+                      <span>Different Person</span>
+                    </div>
+                    <div className="text-[11px] font-sans truncate text-zinc-200">
+                      Unauthorized Imposter
+                    </div>
+                    <div className="text-[9px] text-rose-500 mt-0.5">Should Fail (&lt;70%)</div>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-1">
               <button
-                onClick={isRunning ? onStop : handleVerifyBiometric}
+                onClick={scanCountdown > 0 ? handleCancelScan : handleVerifyBiometric}
                 disabled={isSubmitting || lockoutSec > 0}
                 className="w-full sm:w-auto px-6 py-2.5 rounded-lg font-sans font-semibold text-xs text-black bg-cyan-400 hover:bg-cyan-300 transition-all inline-flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50 shadow-lg shadow-cyan-950/40"
               >
-                {isRunning || isSubmitting ? (
+                {scanCountdown > 0 ? (
                   <>
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Analyzing Pulse Waves...</span>
+                    <span>Capturing Pulses ({scanCountdown}s)...</span>
+                  </>
+                ) : isSubmitting ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Comparing with Supabase...</span>
                   </>
                 ) : (
                   <>
                     <Play className="w-3.5 h-3.5 fill-current" />
-                    <span>Scan Fingerprint / PPG Pulse</span>
+                    <span>Scan Fingerprint / PPG Pulse (5s)</span>
                   </>
                 )}
               </button>
@@ -569,7 +723,7 @@ export default function AuthenticationView({
         bpm={bpm}
         beatCount={beatCount}
         signalQuality={signalQuality}
-        isRunning={isRunning}
+        isRunning={isRunning || scanCountdown > 0}
         height={180}
       />
 

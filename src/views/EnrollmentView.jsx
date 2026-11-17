@@ -631,7 +631,7 @@ export default function EnrollmentView({
                 <span>{bpm > 0 ? `${bpm} BPM` : 'Baseline: 512 ADC'}</span>
               </div>
               <div className="h-44 rounded-lg overflow-hidden border border-zinc-800 bg-black">
-                <PpgWaveformCanvas waveBuffer={waveBuffer} isRunning={isRunning || enrollmentStatus === 'ENROLLING_SENSOR'} />
+                <PpgWaveformCanvas waveBuffer={waveBuffer} isRunning={isRunning || enrollmentStatus === 'ENROLLING_SENSOR'} height={176} />
               </div>
             </div>
 

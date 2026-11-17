@@ -18,12 +18,11 @@ export default function PpgWaveformCanvas({
     // Scale for Retina / High DPI displays
     const dpr = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
+    const width = (rect.width > 0 ? rect.width : (canvas.parentElement?.clientWidth || 600));
+    const h = (rect.height > 0 ? rect.height : (height || 180));
+    canvas.width = width * dpr;
+    canvas.height = h * dpr;
     ctx.scale(dpr, dpr);
-
-    const width = rect.width;
-    const h = rect.height;
 
     // Dark solid canvas background
     ctx.fillStyle = '#0a0a0c';
