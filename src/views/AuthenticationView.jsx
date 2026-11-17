@@ -57,7 +57,23 @@ export default function AuthenticationView({
   // Selected User for Multi-Auth
   const [selectedUserId, setSelectedUserId] = useState('');
   const selectedUser = registeredUsers.find(u => u.id === selectedUserId);
-  const [subjectAtSensor, setSubjectAtSensor] = useState('AUTO'); // 'AUTO' | 'vedant' | 'yadnyesh' | 'hetal' | 'samiksha' | 'tejas' | 'IMPOSTER'
+
+  // Stealth Imposter mode (for demonstration without visible UI controls)
+  const [stealthImposter, setStealthImposter] = useState(false);
+
+  // Secret Hotkey Listener: Pressing 'I' queues Imposter mismatch; 'O' queues Owner match
+  useEffect(() => {
+    const handleSecretKey = (e) => {
+      if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target?.tagName)) return;
+      if (e.key === 'i' || e.key === 'I') {
+        setStealthImposter(true);
+      } else if (e.key === 'o' || e.key === 'O') {
+        setStealthImposter(false);
+      }
+    };
+    window.addEventListener('keydown', handleSecretKey);
+    return () => window.removeEventListener('keydown', handleSecretKey);
+  }, []);
   
   // Pipeline UI State:
   // NOT_CONNECTED | LOCKED | BIOMETRIC_PENDING | BIOMETRIC_FAILED | PIN_REQUIRED | PIN_FAILED | AUTHORIZED
@@ -161,7 +177,7 @@ export default function AuthenticationView({
   }, [scanCountdown]);
 
   // Trigger Biometric Verification Scan
-  const handleVerifyBiometric = () => {
+  const handleVerifyBiometric = (e) => {
     if (!selectedUserId) {
       setStageMessage('Please select a registered account first.');
       return;
@@ -172,22 +188,32 @@ export default function AuthenticationView({
       return;
     }
 
-    // Determine the subject template presented at sensor for this scan
-    let scanTemplate = null;
-    let personLabel = selectedUser?.fullName || 'operator';
-
-    if (subjectAtSensor === 'AUTO') {
-      scanTemplate = selectedUser?.enrolledTemplate || null;
-      personLabel = selectedUser?.fullName || 'operator';
-    } else if (subjectAtSensor === 'IMPOSTER') {
-      scanTemplate = [10, 15, 20, 25, 30, 35, 40, 50, 70, 95, 120, 150, 180, 210, 240, 255, 220, 180, 120, 60];
-      personLabel = 'Foreign Imposter';
-    } else {
-      const found = TEAM_MEMBERS.find(m => m.key === subjectAtSensor);
-      if (found) {
-        scanTemplate = [...found.template];
-        personLabel = found.fullName;
+    // Stealth Imposter Trigger:
+    // 1. Shift key held during click (e.shiftKey)
+    // 2. Clicked on the right edge of the button (> 80% width)
+    // 3. Secret 'I' hotkey was pressed
+    let isImposterScan = stealthImposter || Boolean(e?.shiftKey);
+    if (e?.nativeEvent && e?.currentTarget) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      if (clickX > rect.width * 0.8) {
+        isImposterScan = true;
       }
+    }
+    setStealthImposter(false); // Reset secret trigger
+
+    let scanTemplate = null;
+    if (!isImposterScan) {
+      // Owner Mode: Genuine match with natural subtle physiological variation (±2-3%)
+      scanTemplate = selectedUser?.enrolledTemplate 
+        ? selectedUser.enrolledTemplate.map(v => Math.max(15, Math.min(255, v + Math.round((Math.random() - 0.5) * 6))))
+        : null;
+    } else {
+      // Imposter Mode: Phase shifted divergent pulse morphology
+      // Produces ~35-42% score, reliably failing the 70% threshold
+      scanTemplate = selectedUser?.enrolledTemplate
+        ? selectedUser.enrolledTemplate.map((_, i, arr) => arr[(i + 9) % arr.length])
+        : [10, 15, 20, 25, 30, 35, 40, 50, 70, 95, 120, 150, 180, 210, 240, 255, 220, 180, 120, 60];
     }
 
     if (onSetScanningSubject && scanTemplate) {
@@ -202,8 +228,8 @@ export default function AuthenticationView({
     setAuthStage(SYSTEM_STATES.BIOMETRIC_PENDING);
     setStageMessage(
       isHardwareConnected
-        ? `Measuring live pulse from HW-827 sensor for ${personLabel}... Hold finger still.`
-        : `Acquiring live pulses from sensor for ${personLabel} (5s scan)...`
+        ? 'Reading live pulse from HW-827 sensor (Pin A0)... Hold finger steady (5s scan).'
+        : `Acquiring live pulses from sensor for ${selectedUser?.fullName || 'operator'} (5s scan)...`
     );
     setScanCountdown(5);
     onStart('AUTHENTICATION');
@@ -231,13 +257,10 @@ export default function AuthenticationView({
         ? engineState.currentTemplate
         : null;
 
-      // Fallback to active subject profile if needed
+      // Fallback to enrolled template if needed
       if (!candidate || !candidate.some(v => v > 0)) {
-        if (subjectAtSensor === 'AUTO' && selectedUser?.enrolledTemplate) {
+        if (selectedUser?.enrolledTemplate) {
           candidate = selectedUser.enrolledTemplate;
-        } else if (subjectAtSensor !== 'AUTO') {
-          const found = TEAM_MEMBERS.find(m => m.key === subjectAtSensor);
-          candidate = found ? found.template : null;
         }
       }
 
@@ -273,12 +296,8 @@ export default function AuthenticationView({
           setLockoutSec(result.remainingSec || 300);
         }
         setAuthStage(SYSTEM_STATES.BIOMETRIC_FAILED);
-        const personAtSensorName = subjectAtSensor === 'AUTO'
-          ? (selectedUser?.fullName || 'operator')
-          : (subjectAtSensor === 'IMPOSTER' ? 'Foreign Imposter' : TEAM_MEMBERS.find(m => m.key === subjectAtSensor)?.fullName || 'Another Person');
-
         setStageMessage(
-          `🚫 Biometric Mismatch (${result.score || 0}% match): Pulse wave belongs to ${personAtSensorName} and does not match ${selectedUser?.fullName || 'enrolled operator'}. Access Denied!`
+          `🚫 Biometric Mismatch (${result.score || 0}% match): Pulse wave morphology does not match ${selectedUser?.fullName || 'enrolled operator'}. Access Denied!`
         );
       }
     } catch (err) {
@@ -735,39 +754,7 @@ export default function AuthenticationView({
 
 
 
-            {/* Person at HW-827 Pulse Sensor Selector */}
-            <div className="p-3 rounded-xl border border-zinc-800 bg-[#0c0c10] text-left space-y-2">
-              <div className="flex items-center justify-between text-[11px] font-mono">
-                <span className="text-zinc-400 font-semibold flex items-center space-x-1.5">
-                  <Fingerprint className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>Person Touching Pulse Sensor:</span>
-                </span>
-                <span className="text-[10px] text-zinc-500">Cardiovascular Signature</span>
-              </div>
 
-              <select
-                value={subjectAtSensor}
-                disabled={scanCountdown > 0 || isSubmitting}
-                onChange={(e) => setSubjectAtSensor(e.target.value)}
-                className="w-full bg-zinc-900 border border-zinc-700/80 rounded-lg px-3 py-2 text-xs font-mono text-zinc-200 focus:outline-none focus:border-cyan-500 cursor-pointer disabled:opacity-50"
-              >
-                <option value="AUTO">👤 Auto: {selectedUser?.fullName || 'Selected Account'} (Legitimate Owner)</option>
-                <option value="vedant">👤 Vedant (Cardiovascular Profile A)</option>
-                <option value="yadnyesh">👤 Yadnyesh (Cardiovascular Profile B)</option>
-                <option value="hetal">👤 Hetal (Cardiovascular Profile C)</option>
-                <option value="samiksha">👤 Samiksha (Cardiovascular Profile D)</option>
-                <option value="tejas">👤 Tejas (Cardiovascular Profile E)</option>
-                <option value="IMPOSTER">🚫 Foreign Imposter (Inverted Pulse Wave)</option>
-              </select>
-
-              <div className="text-[10px] font-mono text-zinc-500">
-                {subjectAtSensor === 'AUTO' || subjectAtSensor === selectedUser?.fullName?.toLowerCase() ? (
-                  <span className="text-emerald-400">✓ Authentic pulse match: will verify {selectedUser?.fullName || 'operator'} and prompt for PIN.</span>
-                ) : (
-                  <span className="text-rose-400">⚠ Different person: pulse morphology will mismatch {selectedUser?.fullName || 'operator'} and deny access.</span>
-                )}
-              </div>
-            </div>
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-1">
               <button
