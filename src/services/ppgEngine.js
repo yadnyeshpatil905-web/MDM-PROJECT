@@ -93,19 +93,43 @@ export class PpgSimulator {
   }
 
   startProcess() {
-    if (this.isRunning) return;
+    // Force-stop any previous run to avoid stale isRunning guard
+    if (this.isRunning) {
+      this.isRunning = false;
+      if (this.captureInterval) clearInterval(this.captureInterval);
+      if (this.waveTimer) clearInterval(this.waveTimer);
+    }
     this.isRunning = true;
     this.progress = 0;
     this.beatCount = 0;
     this.validIntervals = 0;
     this.templateBeats = 0;
     this.bpm = 0;
+    this.matchScore = 0;
     this.accumulator = new Array(WAVE_POINTS).fill(0);
     this.currentTemplate = new Array(WAVE_POINTS).fill(0);
     this.rawPulseBuffer = [];
     this.rawRedBuffer = [];
     this.rawIrBuffer = [];
     this.rawRecording = null;
+
+    // Seed the wave buffer with realistic live PPG morphology so the oscilloscope pulses immediately
+    this.waveBuffer = [];
+    const msPerBeat = 60000 / 72;
+    for (let i = 0; i < 150; i++) {
+      const tMs = i * 20;
+      const normalizedPhase = (tMs % msPerBeat) / msPerBeat;
+      const p1 = Math.exp(-Math.pow((normalizedPhase - 0.18) / 0.07, 2)) * 200;
+      const p2 = Math.exp(-Math.pow((normalizedPhase - 0.38) / 0.08, 2)) * 90;
+      const p3 = Math.exp(-Math.pow((normalizedPhase - 0.62) / 0.12, 2)) * 35;
+      const ac = Math.round(p1 + p2 + p3 - 30);
+      const isPeak = normalizedPhase >= 0.16 && normalizedPhase <= 0.20;
+      const baseline = 512 + Math.sin(i * 0.015) * 10;
+      const raw = Math.max(0, Math.min(1023, Math.round(baseline + ac)));
+      this.waveBuffer.push({ t: i, val: raw, ac, isPeak, pulse: raw, red: raw, ir: raw });
+    }
+    this.bpm = 72;
+    this.beatCount = 1;
 
     // Step 1: Detect Finger
     this.state = 'FINGER_DETECTED';
@@ -147,8 +171,9 @@ export class PpgSimulator {
   stopProcess() {
     if (!this.isRunning && this.state === 'IDLE') return;
     this.isRunning = false;
-    if (this.captureInterval) clearInterval(this.captureInterval);
-    if (this.waveTimer) clearInterval(this.waveTimer);
+    if (this.captureInterval) { clearInterval(this.captureInterval); this.captureInterval = null; }
+    if (this.waveTimer) { clearInterval(this.waveTimer); this.waveTimer = null; }
+    // Preserve beatCount, bpm, matchScore, and currentTemplate so the UI can display final results
     this.state = 'IDLE';
     this.servoAngle = 0;
     this.ledStatus = false;
@@ -165,14 +190,18 @@ export class PpgSimulator {
     let sampleIdx = 0;
     this.heartRateTarget = this.targetResult === 'FAIL_HEARTRATE' ? 165 : 72 + Math.floor(Math.random() * 8 - 4);
     const msPerBeat = (60000 / this.heartRateTarget);
-    let lastBeatTime = Date.now();
+    const startTime = Date.now();
     let hasTriggeredThisCycle = false;
 
     this.waveTimer = setInterval(() => {
+      if (!this.isRunning) {
+        clearInterval(this.waveTimer);
+        return;
+      }
       sampleIdx++;
       const now = Date.now();
-      const beatElapsed = (now - lastBeatTime) % msPerBeat;
-      const normalizedPhase = (beatElapsed / msPerBeat); // 0.0 to 1.0
+      const totalElapsed = now - startTime;
+      const normalizedPhase = (totalElapsed % msPerBeat) / msPerBeat; // 0.0 to 1.0
 
       // Realistic PPG pulse equation:
       // Systolic peak + dicrotic notch + diastolic wave + baseline drift
@@ -184,16 +213,16 @@ export class PpgSimulator {
         ac = (Math.random() - 0.5) * 40;
         this.signalQuality = 'WEAK';
       } else {
-        // High quality arterial pulse wave
-        const p1 = Math.exp(-Math.pow((normalizedPhase - 0.18) / 0.08, 2)) * 180; // Main systolic peak
-        const p2 = Math.exp(-Math.pow((normalizedPhase - 0.38) / 0.09, 2)) * 80;  // Dicrotic notch / wave
-        const p3 = Math.exp(-Math.pow((normalizedPhase - 0.65) / 0.15, 2)) * 25;  // Diastolic decay
-        ac = p1 + p2 + p3 - 40;
+        // High quality arterial pulse wave with prominent peaks
+        const p1 = Math.exp(-Math.pow((normalizedPhase - 0.18) / 0.07, 2)) * 200; // Main systolic peak (sharper, taller)
+        const p2 = Math.exp(-Math.pow((normalizedPhase - 0.38) / 0.08, 2)) * 90;  // Dicrotic notch / wave
+        const p3 = Math.exp(-Math.pow((normalizedPhase - 0.62) / 0.12, 2)) * 35;  // Diastolic decay
+        ac = p1 + p2 + p3 - 30;
 
-        // Slight micro-jitter
-        ac += (Math.random() - 0.5) * 4;
+        // Slight micro-jitter for realism
+        ac += (Math.random() - 0.5) * 3;
 
-        if (normalizedPhase >= 0.15 && normalizedPhase <= 0.24) {
+        if (normalizedPhase >= 0.14 && normalizedPhase <= 0.24) {
           if (!hasTriggeredThisCycle) {
             isPeak = true;
             hasTriggeredThisCycle = true;
@@ -207,7 +236,7 @@ export class PpgSimulator {
         }
       }
 
-      const baseline = 512 + Math.sin(sampleIdx * 0.02) * 15;
+      const baseline = 512 + Math.sin(sampleIdx * 0.015) * 10;
       const raw = Math.max(0, Math.min(1023, Math.round(baseline + ac)));
 
       // Synthesize realistic HW-827 Pulse Sensor 10-bit analog optical samples
@@ -234,7 +263,8 @@ export class PpgSimulator {
         ir: raw
       });
 
-      if (sampleIdx % 3 === 0) {
+      // Emit every 2 samples (25Hz) for smoother visual updates
+      if (sampleIdx % 2 === 0) {
         this.emit();
       }
     }, 20); // 50Hz sample rate for smooth visualization
@@ -444,9 +474,9 @@ export class PpgSimulator {
       signalQuality: this.signalQuality,
       signalAmplitude: this.signalAmplitude,
       progress: this.progress,
-      waveBuffer: this.waveBuffer,
-      enrolledTemplate: this.enrolledTemplate,
-      currentTemplate: this.currentTemplate,
+      waveBuffer: [...this.waveBuffer],
+      enrolledTemplate: [...this.enrolledTemplate],
+      currentTemplate: [...this.currentTemplate],
       rawRecording: this.rawRecording,
       latestRed: this.latestRed,
       latestIr: this.latestIr,

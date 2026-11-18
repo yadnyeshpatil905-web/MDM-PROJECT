@@ -73,12 +73,21 @@ export default function App() {
       if (simulatorRef.current) {
         simulatorRef.current.setEnrolledTemplate(template);
       }
+      if (isHardwareConnected && serialDriverRef.current) {
+        serialDriverRef.current.writeLine(`CMD:SET_TEMPLATE ${template.join(',')}`);
+      }
     }
   };
 
   const handleSetScanningSubject = (template) => {
     if (simulatorRef.current) {
       simulatorRef.current.setScanningSubject(template);
+    }
+  };
+
+  const handleSetTargetResult = (target) => {
+    if (simulatorRef.current) {
+      simulatorRef.current.setTargetResult(target);
     }
   };
 
@@ -233,6 +242,14 @@ export default function App() {
 
         if (status.connected) {
           if (simulatorRef.current) simulatorRef.current.stopProcess();
+          // Initialize Arduino in AUTH mode and sync LCD
+          setTimeout(() => {
+            if (serialDriverRef.current) {
+              serialDriverRef.current.writeLine("MODE:AUTH");
+              serialDriverRef.current.writeLine("CMD:LCD ACCESS LOCKED|PLACE FINGER");
+            }
+          }, 1500); // Allow Arduino bootloader settling time
+
           setEngineState(prev => ({
             ...prev,
             state: SYSTEM_STATES.LOCKED,
@@ -301,10 +318,14 @@ export default function App() {
   const handleStartScan = (forcedMode = null) => {
     sounds.init();
     const currentMode = forcedMode || engineState.mode;
+    
+    // Reset scan-specific fields but do NOT overwrite waveBuffer — let the simulator control it
     setEngineState(prev => ({
       ...prev,
       currentTemplate: new Array(20).fill(0),
       matchScore: 0,
+      beatCount: 0,
+      bpm: 0,
       state: SYSTEM_STATES.BIOMETRIC_PENDING,
       isRunning: true,
       statusMessage: currentMode === 'ENROLLMENT'
@@ -314,6 +335,11 @@ export default function App() {
     if (isHardwareConnected) {
       if (currentMode === 'ENROLLMENT') {
         handleSendSerial("MODE:ENROLL");
+      } else {
+        handleSendSerial("MODE:AUTH");
+        if (engineState.enrolledTemplate && engineState.enrolledTemplate.length === 20) {
+          handleSendSerial(`CMD:SET_TEMPLATE ${engineState.enrolledTemplate.join(',')}`);
+        }
       }
       handleSendSerial("START");
     } else {
@@ -473,6 +499,7 @@ export default function App() {
               onOpenVaultFolder={() => setActiveTab('vault')}
               onSetEnrolledTemplate={handleSetEnrolledTemplate}
               onSetScanningSubject={handleSetScanningSubject}
+              onSetTargetResult={handleSetTargetResult}
               onUpdateLcd={handleUpdateLcd}
               onSendSerial={handleSendSerial}
             />

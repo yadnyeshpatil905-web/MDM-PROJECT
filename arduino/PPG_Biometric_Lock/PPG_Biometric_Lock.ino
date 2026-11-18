@@ -40,7 +40,11 @@ bool isEnrollMode = (ENROLL_MODE == 1);
 #define MAGIC_VALUE      23917
 
 // ================= OBJECTS =================
-LiquidCrystal_I2C lcd(0x27, 16, 2);
+LiquidCrystal_I2C lcd27(0x27, 16, 2);
+LiquidCrystal_I2C lcd3F(0x3F, 16, 2);
+LiquidCrystal_I2C* pLcd = &lcd27;
+#define lcd (*pLcd)
+
 Servo lockServo;
 
 // Synchronized LCD & Actuator State
@@ -132,6 +136,16 @@ void setup() {
   lockServo.attach(SERVO_PIN);
   lockServo.write(0);
 
+  // Auto-detect I2C LCD backpack address (0x27 vs 0x3F)
+  Wire.begin();
+  Wire.beginTransmission(0x27);
+  if (Wire.endTransmission() != 0) {
+    Wire.beginTransmission(0x3F);
+    if (Wire.endTransmission() == 0) {
+      pLcd = &lcd3F;
+    }
+  }
+
   lcd.init();
   lcd.backlight();
   lcd.clear();
@@ -183,8 +197,25 @@ void checkSerialCommands() {
     cmd.trim();
     if (cmd.length() == 0) continue;
 
-    // Synchronized LCD message command from Web UI: CMD:LCD <line1>|<line2> or LCD:<line1>|<line2>
-    if (cmd.startsWith("CMD:LCD ") || cmd.startsWith("LCD:")) {
+    // Synchronize enrolled template from web database (e.g. Vedant, Hetal, etc.)
+    if (cmd.startsWith("CMD:SET_TEMPLATE ") || cmd.startsWith("SET:TEMPLATE:")) {
+      String payload = cmd.startsWith("CMD:SET_TEMPLATE ") ? cmd.substring(17) : cmd.substring(13);
+      payload.trim();
+      int idx = 0;
+      int startIdx = 0;
+      while (idx < WAVE_POINTS && startIdx < payload.length()) {
+        int comma = payload.indexOf(',', startIdx);
+        String valStr = (comma >= 0) ? payload.substring(startIdx, comma) : payload.substring(startIdx);
+        valStr.trim();
+        enrolled[idx] = (byte)constrain(valStr.toInt(), 10, 255);
+        idx++;
+        if (comma < 0) break;
+        startIdx = comma + 1;
+      }
+      saveTemplate();
+      Serial.print(F("ACK:TEMPLATE_UPDATED:"));
+      Serial.println(idx);
+    } else if (cmd.startsWith("CMD:LCD ") || cmd.startsWith("LCD:")) {
       String payload = cmd.startsWith("CMD:LCD ") ? cmd.substring(8) : cmd.substring(4);
       int sep = payload.indexOf('|');
       String l1 = sep >= 0 ? payload.substring(0, sep) : payload;
@@ -194,16 +225,16 @@ void checkSerialCommands() {
       Serial.print(l1);
       Serial.print(F("|"));
       Serial.println(l2);
-    } else if (cmd.equalsIgnoreCase("MODE:ENROLL") || cmd.equalsIgnoreCase("CMD:ENROLL") || cmd.equalsIgnoreCase("ENROLL") || cmd.equalsIgnoreCase("START")) {
+    } else if (cmd.equalsIgnoreCase("MODE:ENROLL") || cmd.equalsIgnoreCase("CMD:ENROLL") || cmd.equalsIgnoreCase("ENROLL")) {
       isEnrollMode = true;
       Serial.println(F("MODE:ENROLL_ACTIVE"));
       Serial.println(F("BIOMETRIC ENROLLMENT"));
       updateLcd("ENROLL MODE", "PLACE FINGER", 5000);
-    } else if (cmd.equalsIgnoreCase("MODE:AUTH") || cmd.equalsIgnoreCase("CMD:AUTH") || cmd.equalsIgnoreCase("AUTH") || cmd.equalsIgnoreCase("START_AUTH")) {
+    } else if (cmd.equalsIgnoreCase("MODE:AUTH") || cmd.equalsIgnoreCase("CMD:AUTH") || cmd.equalsIgnoreCase("AUTH") || cmd.equalsIgnoreCase("START") || cmd.equalsIgnoreCase("START_AUTH")) {
       isEnrollMode = false;
       Serial.println(F("MODE:AUTH_ACTIVE"));
       updateLcd("ACCESS LOCKED", "PLACE FINGER", 5000);
-    } else if (cmd.startsWith("CMD:UNLOCK")) {
+    } else if (cmd.startsWith("CMD:UNLOCK") || cmd.equalsIgnoreCase("UNLOCK")) {
       // Actuator Unlock: Rotate physical servo deadbolt to 90 degrees
       isUnlockedState = true;
       lockServo.write(90);
@@ -212,7 +243,7 @@ void checkSerialCommands() {
       updateLcd("ACCESS GRANTED", "VAULT UNLOCKED", 60000);
       Serial.println(F("ACCESS GRANTED"));
       Serial.println(F("ACK:UNLOCK:SUCCESS"));
-    } else if (cmd.equalsIgnoreCase("CMD:LOCK") || cmd.equalsIgnoreCase("RESET")) {
+    } else if (cmd.equalsIgnoreCase("CMD:LOCK") || cmd.equalsIgnoreCase("RESET") || cmd.equalsIgnoreCase("LOCK")) {
       // Relock deadbolt
       isUnlockedState = false;
       lockServo.write(0);
@@ -221,7 +252,7 @@ void checkSerialCommands() {
       updateLcd("ACCESS LOCKED", "PLACE FINGER", 4000);
       Serial.println(F("SYSTEM LOCKED"));
       Serial.println(F("ACK:LOCK:SUCCESS"));
-    } else if (cmd.startsWith("CMD:DENY")) {
+    } else if (cmd.startsWith("CMD:DENY") || cmd.equalsIgnoreCase("DENY")) {
       isUnlockedState = false;
       lockServo.write(0);
       updateLcd("ACCESS DENIED", "TRY AGAIN", 4000);
@@ -545,6 +576,8 @@ bool capturePPG() {
   unsigned long previousSample = millis();
 
   while (millis() - start < CAPTURE_TIME) {
+    checkSerialCommands();
+    if (isUnlockedState) return true; // Host authorized unlock
 
     if (millis() - previousSample < SAMPLE_INTERVAL)
       continue;

@@ -129,7 +129,7 @@ export default function PpgWaveformCanvas({
       }
     });
 
-  }, [waveBuffer, isRunning, signalQuality, height]);
+  }, [waveBuffer, isRunning, signalQuality, height, bpm, beatCount]);
 
   return (
     <div className="relative w-full overflow-hidden rounded-md border border-zinc-800/80" style={{ height: `${height}px` }}>

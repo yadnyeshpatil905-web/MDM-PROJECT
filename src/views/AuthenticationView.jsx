@@ -59,6 +59,7 @@ export default function AuthenticationView({
   onOpenVaultFolder = () => {},
   onSetEnrolledTemplate = () => {},
   onSetScanningSubject = () => {},
+  onSetTargetResult = () => {},
   onUpdateLcd = () => {},
   onSendSerial = () => {}
 }) {
@@ -290,6 +291,10 @@ export default function AuthenticationView({
       onSetScanningSubject(scanTemplate);
     }
 
+    if (onSetTargetResult) {
+      onSetTargetResult(isImposterScan ? 'FAIL_MISMATCH' : 'SUCCESS');
+    }
+
     if (selectedUser?.enrolledTemplate && onSetEnrolledTemplate) {
       onSetEnrolledTemplate(selectedUser.enrolledTemplate);
     }
@@ -337,10 +342,12 @@ export default function AuthenticationView({
         }
       }
 
-      onStop();
+      // Stop the simulator AFTER extracting the template data (not before)
+      // This preserves beatCount, bpm, and waveform data for the UI
 
       if (!candidate || candidate.length !== 20 || !candidate.some(v => v > 0)) {
         setIsSubmitting(false);
+        onStop();
         setAuthStage(SYSTEM_STATES.BIOMETRIC_FAILED);
         setStageMessage('No clean pulse wave detected on sensor. Please keep finger steadily on HW-827 Pulse Sensor and retry.');
         onUpdateLcd('BAD SIGNAL', 'RETRY SCAN');
@@ -354,6 +361,7 @@ export default function AuthenticationView({
       });
 
       setIsSubmitting(false);
+      onStop(); // Stop simulator after getting results, preserving final waveform display
 
       if (result.success) {
         // Factor 1 Passed!
@@ -379,6 +387,7 @@ export default function AuthenticationView({
       }
     } catch (err) {
       setIsSubmitting(false);
+      onStop();
       setAuthStage(SYSTEM_STATES.BIOMETRIC_FAILED);
       setStageMessage(err.message || 'Error communicating with verification service.');
       onUpdateLcd('AUTH ERROR', 'RETRY SCAN');
@@ -732,7 +741,13 @@ export default function AuthenticationView({
               value={selectedUserId}
               disabled={authStage === SYSTEM_STATES.PIN_REQUIRED || isVerifying || isUnlocked}
               onChange={(e) => {
-                setSelectedUserId(e.target.value);
+                const newId = e.target.value;
+                setSelectedUserId(newId);
+                const found = registeredUsers.find(u => u.id === newId);
+                if (found?.enrolledTemplate) {
+                  onSetEnrolledTemplate(found.enrolledTemplate);
+                  onSendSerial(`CMD:SET_TEMPLATE ${found.enrolledTemplate.join(',')}`);
+                }
                 setAuthStage(SYSTEM_STATES.LOCKED);
                 setStageMessage('Operator changed. Place finger on sensor to begin.');
                 onUpdateLcd('ACCESS LOCKED', 'PLACE FINGER');
