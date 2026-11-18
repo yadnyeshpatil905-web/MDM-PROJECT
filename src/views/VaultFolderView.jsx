@@ -154,13 +154,13 @@ export default function VaultFolderView({
   // If vault is locked, present the secure gateway screen
   if (!isVaultUnlocked) {
     return (
-      <div className="max-w-4xl mx-auto space-y-8 py-4">
+      <div className="max-w-5xl mx-auto space-y-6 py-4">
         {/* Locked Gateway Banner */}
-        <div className="rounded-2xl border border-zinc-800 bg-[#0d0d12] p-8 md:p-12 text-center relative overflow-hidden shadow-2xl">
+        <div className="rounded-xl border border-zinc-800 bg-[#0e0e11] p-8 md:p-12 text-center relative overflow-hidden shadow-2xl">
           <div className="absolute inset-0 bg-gradient-to-b from-rose-500/5 via-transparent to-transparent pointer-events-none" />
           
-          <div className="w-20 h-20 rounded-2xl bg-zinc-900 border border-zinc-700/80 mx-auto flex items-center justify-center text-rose-400 shadow-inner mb-6">
-            <FolderLock className="w-10 h-10 text-rose-400" />
+          <div className="w-16 h-16 rounded-xl bg-zinc-900 border border-zinc-700/80 mx-auto flex items-center justify-center text-rose-400 shadow-inner mb-6">
+            <FolderLock className="w-8 h-8 text-rose-400" />
           </div>
 
           <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-rose-950/60 border border-rose-800/60 text-rose-300 text-xs font-mono mb-3">
@@ -168,18 +168,18 @@ export default function VaultFolderView({
             <span>CONFIDENTIAL VAULT & FOLDERS • ENCRYPTED & LOCKED</span>
           </div>
 
-          <h2 className="text-3xl font-extrabold text-white tracking-tight">
+          <h2 className="text-2xl font-extrabold text-white tracking-tight">
             Multi-Authenticator Security Gate
           </h2>
 
-          <p className="text-zinc-400 max-w-xl mx-auto mt-3 text-sm leading-relaxed">
+          <p className="text-zinc-400 max-w-xl mx-auto mt-3 text-sm leading-relaxed font-sans">
             This secure folder contains confidential credentials, cryptographic root keys, and private system records.
             Access requires two-factor verification: your <strong className="text-white">enrolled fingerprint</strong> and secret <strong className="text-white">vault PIN</strong>.
           </p>
 
           {/* 2-Factor Requirement Breakdown */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-lg mx-auto my-8 text-left">
-            <div className="p-4 rounded-xl border border-zinc-800 bg-zinc-900/60">
+            <div className="p-4 rounded-xl border border-zinc-800 bg-[#121216]">
               <div className="flex items-center space-x-2 text-cyan-400 font-medium text-xs font-mono uppercase mb-1">
                 <span>1. Biometric Fingerprint</span>
               </div>
@@ -188,7 +188,7 @@ export default function VaultFolderView({
               </p>
             </div>
 
-            <div className="p-4 rounded-xl border border-zinc-800 bg-zinc-900/60">
+            <div className="p-4 rounded-xl border border-zinc-800 bg-[#121216]">
               <div className="flex items-center space-x-2 text-amber-400 font-medium text-xs font-mono uppercase mb-1">
                 <span>2. Vault Security PIN</span>
               </div>
@@ -201,7 +201,7 @@ export default function VaultFolderView({
           {/* Unlock CTA Button */}
           <button
             onClick={onOpenAuth}
-            className="inline-flex items-center space-x-2.5 px-6 py-3.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-semibold text-sm shadow-lg shadow-cyan-900/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
+            className="inline-flex items-center space-x-2.5 px-6 py-3.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-semibold text-sm shadow-lg shadow-cyan-900/30 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
           >
             <FolderKey className="w-5 h-5" />
             <span>Authenticate with Fingerprint & PIN to Open Vault</span>
@@ -211,7 +211,7 @@ export default function VaultFolderView({
 
         {/* Security Overview Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-mono">
-          <div className="p-4 rounded-xl border border-zinc-800/80 bg-zinc-950/70 text-zinc-400 space-y-1">
+          <div className="p-4 rounded-xl border border-zinc-800 bg-[#101014] text-zinc-400 space-y-1">
             <div className="text-zinc-300 font-semibold flex items-center space-x-1.5">
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
               <span>Fail-Closed Deadbolt</span>
@@ -219,7 +219,7 @@ export default function VaultFolderView({
             <p className="text-zinc-500">Hardware servo angle: {servoAngle}° (Engaged). Vault opens solely upon complete 2FA authorization.</p>
           </div>
 
-          <div className="p-4 rounded-xl border border-zinc-800/80 bg-zinc-950/70 text-zinc-400 space-y-1">
+          <div className="p-4 rounded-xl border border-zinc-800 bg-[#101014] text-zinc-400 space-y-1">
             <div className="text-zinc-300 font-semibold flex items-center space-x-1.5">
               <Key className="w-4 h-4 text-amber-400" />
               <span>Multi-Factor Isolation</span>
@@ -227,7 +227,7 @@ export default function VaultFolderView({
             <p className="text-zinc-500">Biometric alone or PIN alone cannot unlock the vault. Both must be validated in sequence.</p>
           </div>
 
-          <div className="p-4 rounded-xl border border-zinc-800/80 bg-zinc-950/70 text-zinc-400 space-y-1">
+          <div className="p-4 rounded-xl border border-zinc-800 bg-[#101014] text-zinc-400 space-y-1">
             <div className="text-zinc-300 font-semibold flex items-center space-x-1.5">
               <Clock className="w-4 h-4 text-cyan-400" />
               <span>Challenge Expiry</span>
@@ -241,13 +241,13 @@ export default function VaultFolderView({
 
   // Vault is UNLOCKED: Display the rich confidential files and folders explorer
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className="max-w-5xl mx-auto space-y-6">
       
       {/* Access Granted Header Banner */}
-      <div className="rounded-xl border border-emerald-800/60 bg-gradient-to-r from-emerald-950/40 via-zinc-900 to-zinc-950 p-6 flex flex-col md:flex-row items-center justify-between gap-4 shadow-xl">
+      <div className="rounded-xl border border-emerald-800/60 bg-[#0e0e11] p-6 flex flex-col md:flex-row items-center justify-between gap-4 shadow-xl">
         <div className="flex items-center space-x-4">
-          <div className="w-14 h-14 rounded-xl bg-emerald-950 border border-emerald-700/80 flex items-center justify-center text-emerald-400 shadow-inner">
-            <FolderOpen className="w-8 h-8 text-emerald-400" />
+          <div className="w-12 h-12 rounded-xl bg-emerald-950 border border-emerald-700/80 flex items-center justify-center text-emerald-400 shadow-inner">
+            <FolderOpen className="w-6 h-6 text-emerald-400" />
           </div>
           <div>
             <div className="flex items-center space-x-2">
@@ -258,7 +258,7 @@ export default function VaultFolderView({
                 Servo Actuator: {servoAngle}° (Retracted)
               </span>
             </div>
-            <h2 className="text-2xl font-bold text-white tracking-tight mt-1 flex items-center space-x-2">
+            <h2 className="text-xl font-bold text-white tracking-tight mt-1 flex items-center space-x-2">
               <span>Confidential Secure Directory</span>
             </h2>
             <p className="text-xs text-zinc-400">
@@ -271,7 +271,7 @@ export default function VaultFolderView({
         <div className="flex items-center space-x-3 w-full md:w-auto">
           <button
             onClick={() => setShowAddModal(true)}
-            className="flex-1 md:flex-initial inline-flex items-center justify-center space-x-1.5 px-4 py-2.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-xs font-semibold text-white transition-colors"
+            className="flex-1 md:flex-initial inline-flex items-center justify-center space-x-1.5 px-4 py-2.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-xs font-semibold text-white transition-colors cursor-pointer"
           >
             <Plus className="w-4 h-4 text-cyan-400" />
             <span>New Secret File</span>
@@ -279,7 +279,7 @@ export default function VaultFolderView({
 
           <button
             onClick={onLockVault}
-            className="flex-1 md:flex-initial inline-flex items-center justify-center space-x-1.5 px-4 py-2.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-xs font-semibold text-white shadow-lg shadow-rose-900/40 transition-colors"
+            className="flex-1 md:flex-initial inline-flex items-center justify-center space-x-1.5 px-4 py-2.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-xs font-semibold text-white shadow-lg shadow-rose-900/40 transition-colors cursor-pointer"
           >
             <Lock className="w-4 h-4" />
             <span>Relock Vault</span>
@@ -288,7 +288,7 @@ export default function VaultFolderView({
       </div>
 
       {/* Directory Navigation & Filters */}
-      <div className="pro-card p-4 border border-zinc-800 bg-[#0e0e12] flex flex-col md:flex-row items-center justify-between gap-4">
+      <div className="rounded-xl p-4 border border-zinc-800 bg-[#0e0e11] flex flex-col md:flex-row items-center justify-between gap-4">
         
         {/* Search */}
         <div className="relative w-full md:w-72">
@@ -298,7 +298,7 @@ export default function VaultFolderView({
             placeholder="Search vault files or secrets..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-zinc-900 border border-zinc-700/80 rounded-lg pl-9 pr-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-cyan-500"
+            className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-cyan-500 font-mono"
           />
         </div>
 
@@ -308,7 +308,7 @@ export default function VaultFolderView({
             <button
               key={cat}
               onClick={() => setSelectedCategory(cat)}
-              className={`px-3 py-1 rounded-md text-[11px] font-mono whitespace-nowrap transition-colors ${
+              className={`px-3 py-1 rounded-md text-[11px] font-mono whitespace-nowrap transition-colors cursor-pointer ${
                 selectedCategory === cat
                   ? 'bg-cyan-950 text-cyan-300 border border-cyan-800 font-semibold'
                   : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 border border-zinc-800'
@@ -321,8 +321,8 @@ export default function VaultFolderView({
       </div>
 
       {/* Vault Files Table / Grid */}
-      <div className="rounded-xl border border-zinc-800 bg-[#0d0d12] overflow-hidden">
-        <div className="px-5 py-3 border-b border-zinc-800 bg-zinc-950/60 flex items-center justify-between text-[11px] font-mono text-zinc-400 uppercase tracking-wider">
+      <div className="rounded-xl border border-zinc-800 bg-[#0e0e11] overflow-hidden">
+        <div className="px-5 py-3 border-b border-zinc-800 bg-[#121216] flex items-center justify-between text-[11px] font-mono text-zinc-400 uppercase tracking-wider">
           <span>Confidential File Name ({filteredFiles.length})</span>
           <div className="flex items-center space-x-8">
             <span className="hidden md:inline">Category</span>

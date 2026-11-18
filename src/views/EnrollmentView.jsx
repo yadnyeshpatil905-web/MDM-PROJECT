@@ -32,7 +32,9 @@ export default function EnrollmentView({
   onStartEnrollment = () => {},
   onStopEnrollment = () => {},
   onUserRegistered = () => {},
-  onNavigateToAuth = () => {}
+  onNavigateToAuth = () => {},
+  onUpdateLcd = () => {},
+  onSendSerial = () => {}
 }) {
   const {
     bpm = 0,
@@ -132,12 +134,14 @@ export default function EnrollmentView({
     onStartEnrollment();
     setEnrollmentStatus('ENROLLING_SENSOR');
     setStatusMessage('Place finger on HW-827 Pulse Sensor (Pin A0). Recording 20-second biometric baseline...');
+    onUpdateLcd('ENROLLING PPG', 'KEEP STILL 20s');
   };
 
   const handleCancelCapture = () => {
     onStopEnrollment();
     setEnrollmentStatus('IDLE');
     setStatusMessage('Biometric capture cancelled. Click button to restart.');
+    onUpdateLcd('ENROLL CANCELLED', 'READY');
   };
 
   // 20s Countdown effect during ENROLLING_SENSOR
@@ -148,8 +152,10 @@ export default function EnrollmentView({
         setCountdown((prev) => {
           if (prev <= 1) {
             clearInterval(timer);
+            onUpdateLcd('PROCESSING PPG', 'SAVING TEMPLATE');
             return 0;
           }
+          onUpdateLcd('ENROLLING PPG', `HOLD STILL ${prev - 1}s`);
           return prev - 1;
         });
       }, 1000);
@@ -177,6 +183,7 @@ export default function EnrollmentView({
       }
       setEnrollmentStatus('IDLE');
       setStatusMessage('✓ 20-second pulse morphology captured successfully! Ready to complete enrollment.');
+      onUpdateLcd('ENROLL SUCCESS', 'TEMPLATE SAVED');
     }
   }, [currentTemplate, rawRecording, enrollmentStatus, isRunning, wizardStep]);
 

@@ -43,6 +43,23 @@ bool isEnrollMode = (ENROLL_MODE == 1);
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 Servo lockServo;
 
+// Synchronized LCD & Actuator State
+bool isUnlockedState = false;
+unsigned long customLcdExpiry = 0;
+String currentLcd1 = "";
+String currentLcd2 = "";
+
+void updateLcd(const String& line1, const String& line2, unsigned long holdMs = 5000) {
+  currentLcd1 = line1;
+  currentLcd2 = line2;
+  customLcdExpiry = millis() + holdMs;
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print(line1.substring(0, 16));
+  lcd.setCursor(0, 1);
+  lcd.print(line2.substring(0, 16));
+}
+
 // ================= PPG DATA =================
 byte enrolled[WAVE_POINTS];
 byte current[WAVE_POINTS];
@@ -166,28 +183,56 @@ void checkSerialCommands() {
     cmd.trim();
     if (cmd.length() == 0) continue;
 
-    if (cmd.equalsIgnoreCase("MODE:ENROLL") || cmd.equalsIgnoreCase("CMD:ENROLL") || cmd.equalsIgnoreCase("ENROLL") || cmd.equalsIgnoreCase("START")) {
+    // Synchronized LCD message command from Web UI: CMD:LCD <line1>|<line2> or LCD:<line1>|<line2>
+    if (cmd.startsWith("CMD:LCD ") || cmd.startsWith("LCD:")) {
+      String payload = cmd.startsWith("CMD:LCD ") ? cmd.substring(8) : cmd.substring(4);
+      int sep = payload.indexOf('|');
+      String l1 = sep >= 0 ? payload.substring(0, sep) : payload;
+      String l2 = sep >= 0 ? payload.substring(sep + 1) : "";
+      updateLcd(l1, l2, 10000);
+      Serial.print(F("LCD:ACK:"));
+      Serial.print(l1);
+      Serial.print(F("|"));
+      Serial.println(l2);
+    } else if (cmd.equalsIgnoreCase("MODE:ENROLL") || cmd.equalsIgnoreCase("CMD:ENROLL") || cmd.equalsIgnoreCase("ENROLL") || cmd.equalsIgnoreCase("START")) {
       isEnrollMode = true;
       Serial.println(F("MODE:ENROLL_ACTIVE"));
       Serial.println(F("BIOMETRIC ENROLLMENT"));
-      lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print(F("ENROLL MODE"));
-      lcd.setCursor(0, 1);
-      lcd.print(F("PLACE FINGER"));
+      updateLcd("ENROLL MODE", "PLACE FINGER", 5000);
     } else if (cmd.equalsIgnoreCase("MODE:AUTH") || cmd.equalsIgnoreCase("CMD:AUTH") || cmd.equalsIgnoreCase("AUTH") || cmd.equalsIgnoreCase("START_AUTH")) {
       isEnrollMode = false;
       Serial.println(F("MODE:AUTH_ACTIVE"));
-      lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print(F("ACCESS LOCKED"));
-      lcd.setCursor(0, 1);
-      lcd.print(F("PLACE FINGER"));
+      updateLcd("ACCESS LOCKED", "PLACE FINGER", 5000);
     } else if (cmd.startsWith("CMD:UNLOCK")) {
-      grantAccess(100);
+      // Actuator Unlock: Rotate physical servo deadbolt to 90 degrees
+      isUnlockedState = true;
+      lockServo.write(90);
+      digitalWrite(LED_PIN, HIGH);
+      tone(BUZZER_PIN, 2000, 250);
+      updateLcd("ACCESS GRANTED", "VAULT UNLOCKED", 60000);
+      Serial.println(F("ACCESS GRANTED"));
+      Serial.println(F("ACK:UNLOCK:SUCCESS"));
     } else if (cmd.equalsIgnoreCase("CMD:LOCK") || cmd.equalsIgnoreCase("RESET")) {
-      isEnrollMode = false;
-      showLocked();
+      // Relock deadbolt
+      isUnlockedState = false;
+      lockServo.write(0);
+      digitalWrite(LED_PIN, LOW);
+      noTone(BUZZER_PIN);
+      updateLcd("ACCESS LOCKED", "PLACE FINGER", 4000);
+      Serial.println(F("SYSTEM LOCKED"));
+      Serial.println(F("ACK:LOCK:SUCCESS"));
+    } else if (cmd.startsWith("CMD:DENY")) {
+      isUnlockedState = false;
+      lockServo.write(0);
+      updateLcd("ACCESS DENIED", "TRY AGAIN", 4000);
+      for (byte i = 0; i < 3; i++) {
+        digitalWrite(LED_PIN, HIGH);
+        tone(BUZZER_PIN, 1000, 150);
+        delay(200);
+        digitalWrite(LED_PIN, LOW);
+        delay(200);
+      }
+      noTone(BUZZER_PIN);
     }
   }
 }
@@ -199,33 +244,34 @@ void checkSerialCommands() {
 void loop() {
   checkSerialCommands();
 
+  // If vault is unlocked via 2FA, keep servo at 90 degrees and LED active
+  if (isUnlockedState) {
+    lockServo.write(90);
+    digitalWrite(LED_PIN, HIGH);
+    delay(100);
+    return;
+  }
+
   lockServo.write(0);
   digitalWrite(LED_PIN, LOW);
 
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  if (isEnrollMode) {
-    lcd.print(F("ENROLL MODE"));
-  } else {
-    lcd.print(F("ACCESS LOCKED"));
-  }
+  // If a custom LCD message from website is active, preserve it without overwriting
+  if (millis() > customLcdExpiry) {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    if (isEnrollMode) {
+      lcd.print(F("ENROLL MODE"));
+    } else {
+      lcd.print(F("ACCESS LOCKED"));
+    }
 
-  lcd.setCursor(0, 1);
-  lcd.print(F("PLACE FINGER"));
-
-  Serial.println();
-  Serial.println(F("----------------------"));
-  if (isEnrollMode) {
-    Serial.println(F("SYSTEM IN ENROLL MODE"));
-    Serial.println(F("BIOMETRIC ENROLLMENT"));
-  } else {
-    Serial.println(F("SYSTEM LOCKED"));
+    lcd.setCursor(0, 1);
+    lcd.print(F("PLACE FINGER"));
   }
-  Serial.println(F("PLACE FINGER"));
 
   // Check finger
   if (!detectFinger()) {
-    delay(300);
+    delay(200);
     return;
   }
 

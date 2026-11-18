@@ -285,6 +285,18 @@ export default function App() {
     }
   };
 
+  // Synchronized LCD updates for Website Virtual Screen and Physical 16x2 Arduino LCD
+  const handleUpdateLcd = (line1, line2) => {
+    setEngineState(prev => ({
+      ...prev,
+      lcdLine1: line1,
+      lcdLine2: line2
+    }));
+    if (isHardwareConnected && serialDriverRef.current) {
+      serialDriverRef.current.writeLine(`CMD:LCD ${line1}|${line2}`);
+    }
+  };
+
   // Start PPG Scan (routes to genuine hardware serial or interactive simulator)
   const handleStartScan = (forcedMode = null) => {
     sounds.init();
@@ -367,6 +379,8 @@ export default function App() {
       statusMessage: 'MULTI-AUTHENTICATOR VERIFIED • VAULT & FOLDER UNLOCKED'
     }));
 
+    handleUpdateLcd('ACCESS GRANTED', 'VAULT UNLOCKED');
+
     if (simulatorRef.current) {
       simulatorRef.current.unlockAuthorized(60);
     }
@@ -388,6 +402,8 @@ export default function App() {
       state: SYSTEM_STATES.LOCKED,
       statusMessage: 'VAULT & FOLDER RELOCKED • DEADBOLT ENGAGED'
     }));
+
+    handleUpdateLcd('ACCESS LOCKED', 'PLACE FINGER');
 
     if (authenticatedUser?.id) {
       try {
@@ -450,9 +466,15 @@ export default function App() {
               registeredUsers={registeredUsers}
               onRefreshUsers={loadRegisteredUsers}
               onAuthSuccess={handleAuthSuccess}
+              onLockVault={handleLockVault}
+              isVaultUnlocked={isVaultUnlocked}
+              authenticatedUser={authenticatedUser}
+              vaultSession={vaultSession}
               onOpenVaultFolder={() => setActiveTab('vault')}
               onSetEnrolledTemplate={handleSetEnrolledTemplate}
               onSetScanningSubject={handleSetScanningSubject}
+              onUpdateLcd={handleUpdateLcd}
+              onSendSerial={handleSendSerial}
             />
           )}
 
@@ -472,6 +494,8 @@ export default function App() {
               engineState={engineState}
               isHardwareConnected={isHardwareConnected}
               onConnectHardware={handleConnectHardware}
+              onUpdateLcd={handleUpdateLcd}
+              onSendSerial={handleSendSerial}
               onStartEnrollment={() => {
                 handleToggleMode('ENROLLMENT');
                 handleStartScan('ENROLLMENT');
