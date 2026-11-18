@@ -999,48 +999,22 @@ bool loadTemplate() {
 // GRANT ACCESS
 // ========================================================
 void grantAccess(byte score) {
-
-  lcd.clear();
-
-  lcd.setCursor(0, 0);
-  lcd.print(F("ACCESS GRANTED"));
-
-  lcd.setCursor(0, 1);
-  lcd.print(F("VAULT UNLOCKED"));
-
-  Serial.println(F("ACCESS GRANTED"));
-  Serial.println(F("ACK:UNLOCK:SUCCESS"));
-
-  // Green/status LED
-  digitalWrite(LED_PIN, HIGH);
-
-  // Short confirmation beep
-  tone(BUZZER_PIN, 2000, 250);
+  isUnlockedState = true;
 
   // Unlock servo deadbolt to 90 degrees
   lockServo.write(90);
 
-  // Keep vault open for 8 seconds, or until web host sends CMD:LOCK
-  unsigned long unlockStart = millis();
-  while (millis() - unlockStart < 8000UL) {
-    if (Serial.available()) {
-      String cmd = Serial.readStringUntil('\n');
-      cmd.trim();
-      if (cmd.equalsIgnoreCase("CMD:LOCK") || cmd.equalsIgnoreCase("RESET")) {
-        break;
-      }
-    }
-    delay(50);
-  }
+  // Status LED ON
+  digitalWrite(LED_PIN, HIGH);
 
-  // Relock deadbolt
-  lockServo.write(0);
+  // Confirmation chime
+  tone(BUZZER_PIN, 2000, 250);
 
-  digitalWrite(LED_PIN, LOW);
+  // Synchronized LCD notification
+  updateLcd("ACCESS GRANTED", "VAULT UNLOCKED", 60000);
 
-  noTone(BUZZER_PIN);
-  
-  Serial.println(F("SYSTEM LOCKED"));
+  Serial.println(F("ACCESS GRANTED"));
+  Serial.println(F("ACK:UNLOCK:SUCCESS"));
 }
 
 
@@ -1048,6 +1022,8 @@ void grantAccess(byte score) {
 // DENY ACCESS
 // ========================================================
 void denyAccess(const __FlashStringHelper *reason) {
+  isUnlockedState = false;
+  lockServo.write(0);
 
   lcd.clear();
 
