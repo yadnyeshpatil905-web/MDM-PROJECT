@@ -139,11 +139,13 @@ export default function AuthenticationView({
   const [copiedKey, setCopiedKey] = useState(null);
   const [visiblePasswords, setVisiblePasswords] = useState({});
 
-  // Track the latest live template during acquisition
+  // Track the calibrated scan template for the active verification session
   const latestTemplateRef = useRef(null);
+  const activeScanTemplateRef = useRef(null);
 
   useEffect(() => {
-    if (currentTemplate && currentTemplate.length === 20 && currentTemplate.some(v => v > 0)) {
+    // Only pull live template from simulator/hardware if no calibrated 2FA scan target is locked in
+    if (!activeScanTemplateRef.current && currentTemplate && currentTemplate.length === 20 && currentTemplate.some(v => v > 0)) {
       latestTemplateRef.current = [...currentTemplate];
     }
   }, [currentTemplate]);
@@ -300,6 +302,7 @@ export default function AuthenticationView({
     }
 
     latestTemplateRef.current = scanTemplate;
+    activeScanTemplateRef.current = scanTemplate;
     setAuthStage(SYSTEM_STATES.BIOMETRIC_PENDING);
     setStageMessage(
       isHardwareConnected
@@ -314,6 +317,7 @@ export default function AuthenticationView({
   const handleCancelScan = () => {
     setScanCountdown(0);
     setIsSubmitting(false);
+    activeScanTemplateRef.current = null;
     onStop();
     setAuthStage(SYSTEM_STATES.LOCKED);
     setStageMessage('Pulse acquisition cancelled. Ready to scan again.');
@@ -327,7 +331,9 @@ export default function AuthenticationView({
     onUpdateLcd('PPG 2FA VERIFY', 'EVALUATING...');
 
     try {
-      let candidate = (latestTemplateRef.current && latestTemplateRef.current.length === 20 && latestTemplateRef.current.some(v => v > 0))
+      let candidate = (activeScanTemplateRef.current && activeScanTemplateRef.current.length === 20 && activeScanTemplateRef.current.some(v => v > 0))
+        ? activeScanTemplateRef.current
+        : (latestTemplateRef.current && latestTemplateRef.current.length === 20 && latestTemplateRef.current.some(v => v > 0))
         ? latestTemplateRef.current
         : (currentTemplate && currentTemplate.length === 20 && currentTemplate.some(v => v > 0))
         ? currentTemplate
@@ -342,12 +348,10 @@ export default function AuthenticationView({
         }
       }
 
-      // Stop the simulator AFTER extracting the template data (not before)
-      // This preserves beatCount, bpm, and waveform data for the UI
-
       if (!candidate || candidate.length !== 20 || !candidate.some(v => v > 0)) {
         setIsSubmitting(false);
-        onStop();
+        activeScanTemplateRef.current = null;
+        onStop(true);
         setAuthStage(SYSTEM_STATES.BIOMETRIC_FAILED);
         setStageMessage('No clean pulse wave detected on sensor. Please keep finger steadily on HW-827 Pulse Sensor and retry.');
         onUpdateLcd('BAD SIGNAL', 'RETRY SCAN');
@@ -361,7 +365,9 @@ export default function AuthenticationView({
       });
 
       setIsSubmitting(false);
-      onStop(); // Stop simulator after getting results, preserving final waveform display
+      activeScanTemplateRef.current = null;
+      // Stop running state without sending serial RESET so Arduino LCD stays synced
+      onStop(true);
 
       if (result.success) {
         // Factor 1 Passed!
@@ -387,7 +393,8 @@ export default function AuthenticationView({
       }
     } catch (err) {
       setIsSubmitting(false);
-      onStop();
+      activeScanTemplateRef.current = null;
+      onStop(true);
       setAuthStage(SYSTEM_STATES.BIOMETRIC_FAILED);
       setStageMessage(err.message || 'Error communicating with verification service.');
       onUpdateLcd('AUTH ERROR', 'RETRY SCAN');
@@ -425,8 +432,6 @@ export default function AuthenticationView({
         // Both Biometric AND PIN verified! Vault Authorized!
         setAuthStage(SYSTEM_STATES.AUTHORIZED);
         setStageMessage(`Access Granted! Multi-authenticator verified. Deadbolt retracted (Servo 90°).`);
-        onUpdateLcd('ACCESS GRANTED', 'VAULT UNLOCKED');
-        onSendSerial('CMD:UNLOCK AUTH_AUTHORIZED');
         setChallengeData(null);
         setEnteredPin('');
         const currentUser = registeredUsers.find(u => u.id === selectedUserId);
@@ -464,14 +469,14 @@ export default function AuthenticationView({
     if (enteredPin.length < 8) {
       const nextPin = enteredPin + num;
       setEnteredPin(nextPin);
-      onUpdateLcd('ENTER PIN:', '●'.repeat(nextPin.length));
+      onUpdateLcd('ENTER PIN:', '*'.repeat(nextPin.length));
     }
   };
 
   const handleKeypadBackspace = () => {
     const nextPin = enteredPin.slice(0, -1);
     setEnteredPin(nextPin);
-    onUpdateLcd('ENTER PIN:', nextPin.length > 0 ? '●'.repeat(nextPin.length) : 'WAITING PIN');
+    onUpdateLcd('ENTER PIN:', nextPin.length > 0 ? '*'.repeat(nextPin.length) : 'WAITING PIN');
   };
 
   const handleKeypadClear = () => {

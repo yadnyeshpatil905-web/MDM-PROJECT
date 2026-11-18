@@ -351,9 +351,12 @@ export default function App() {
     }
   };
 
-  const handleStopScan = () => {
+  const handleStopScan = (skipSerialReset = false) => {
+    const shouldSkipReset = skipSerialReset === true;
     if (isHardwareConnected) {
-      handleSendSerial("RESET");
+      if (!shouldSkipReset) {
+        handleSendSerial("RESET");
+      }
     } else {
       if (simulatorRef.current) {
         simulatorRef.current.stopProcess();
@@ -362,7 +365,7 @@ export default function App() {
     setEngineState(prev => ({
       ...prev,
       isRunning: false,
-      statusMessage: 'SCAN CANCELLED'
+      statusMessage: shouldSkipReset ? prev.statusMessage : 'SCAN CANCELLED'
     }));
   };
 
