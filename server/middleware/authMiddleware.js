@@ -72,3 +72,41 @@ export async function requireAuth(req, res, next) {
   req.user = verifiedUser;
   next();
 }
+
+/**
+ * Optional Authentication Middleware
+ * Attaches req.user if a valid Bearer token is present, without blocking
+ * unauthenticated requests (used for merged demo + user vault listing).
+ */
+export async function optionalAuth(req, res, next) {
+  const authHeader = req.headers.authorization || req.headers['x-auth-token'];
+  if (!authHeader) return next();
+
+  const token = authHeader.startsWith('Bearer ')
+    ? authHeader.substring(7).trim()
+    : authHeader.trim();
+
+  if (!token) return next();
+
+  if (isSupabaseConfigured()) {
+    const supabaseUser = await verifySupabaseToken(token);
+    if (supabaseUser) {
+      req.user = {
+        id: supabaseUser.id,
+        email: supabaseUser.email,
+        authSource: 'supabase'
+      };
+      return next();
+    }
+  }
+
+  const session = authService.verifySession(token);
+  if (session) {
+    req.user = {
+      id: session.userId,
+      email: session.email || null,
+      authSource: 'session'
+    };
+  }
+  return next();
+}

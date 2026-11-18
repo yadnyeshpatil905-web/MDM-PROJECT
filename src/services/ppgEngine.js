@@ -62,6 +62,7 @@ export class PpgSimulator {
 
     this.timer = null;
     this.captureTimer = null;
+    this.autoLockTimer = null;
     this.phaseTime = 0;
     this.heartPhase = 0;
     this.heartRateTarget = 72; // BPM
@@ -93,6 +94,10 @@ export class PpgSimulator {
   }
 
   startProcess() {
+    if (this.autoLockTimer) {
+      clearTimeout(this.autoLockTimer);
+      this.autoLockTimer = null;
+    }
     // Force-stop any previous run to avoid stale isRunning guard
     if (this.isRunning) {
       this.isRunning = false;
@@ -169,6 +174,10 @@ export class PpgSimulator {
   }
 
   stopProcess() {
+    if (this.autoLockTimer) {
+      clearTimeout(this.autoLockTimer);
+      this.autoLockTimer = null;
+    }
     if (!this.isRunning && this.state === 'IDLE') return;
     this.isRunning = false;
     if (this.captureInterval) { clearInterval(this.captureInterval); this.captureInterval = null; }
@@ -435,24 +444,39 @@ export class PpgSimulator {
   }
 
   // Actuator can ONLY be unlocked when Step 2 PIN succeeds on trusted backend
-  unlockAuthorized(autoLockSec = 5) {
+  unlockAuthorized(autoLockSec = 0) {
+    if (this.autoLockTimer) {
+      clearTimeout(this.autoLockTimer);
+      this.autoLockTimer = null;
+    }
+
     this.state = 'ACCESS_GRANTED';
-    this.statusMessage = 'TWO-STEP AUTHENTICATION AUTHORIZED Ã¢â‚¬Â¢ VAULT UNLOCKED (SERVO 90Ã‚Â°)';
+    this.statusMessage = 'TWO-STEP AUTHENTICATION AUTHORIZED • VAULT UNLOCKED (SERVO 90°)';
     this.servoAngle = 90;
     this.ledStatus = true;
     this.lcdLine1 = 'ACCESS GRANTED';
     this.lcdLine2 = 'VAULT OPEN';
     this.emit({ granted: true });
 
-    setTimeout(() => {
-      this.servoAngle = 0;
-      this.ledStatus = false;
-      this.state = 'IDLE';
-      this.statusMessage = 'AUTO-RELOCK COMPLETE Ã¢â‚¬Â¢ VAULT LOCKED (SERVO 0Ã‚Â°)';
-      this.lcdLine1 = 'ACCESS LOCKED';
-      this.lcdLine2 = 'PLACE FINGER';
-      this.emit();
-    }, autoLockSec * 1000);
+    if (autoLockSec > 0) {
+      this.autoLockTimer = setTimeout(() => {
+        this.lockVault('AUTO-RELOCK COMPLETE • VAULT LOCKED (SERVO 0°)');
+      }, autoLockSec * 1000);
+    }
+  }
+
+  lockVault(statusMessage = 'VAULT & FOLDER RELOCKED • DEADBOLT ENGAGED') {
+    if (this.autoLockTimer) {
+      clearTimeout(this.autoLockTimer);
+      this.autoLockTimer = null;
+    }
+    this.servoAngle = 0;
+    this.ledStatus = false;
+    this.state = 'IDLE';
+    this.statusMessage = statusMessage;
+    this.lcdLine1 = 'ACCESS LOCKED';
+    this.lcdLine2 = 'PLACE FINGER';
+    this.emit();
   }
 
   emit(extra = {}) {

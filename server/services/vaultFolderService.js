@@ -96,14 +96,15 @@ Hardware Deadbolt Emergency Override: Dual-Key Manual Slot`
       size: f.size,
       updatedAt: f.updatedAt,
       mimeType: f.mimeType,
-      encrypted: f.encrypted
+      encrypted: f.encrypted,
+      source: 'example'
     }));
   }
 
   getFileById(id) {
     const file = this.files.find(f => f.id === id);
     if (!file) return null;
-    return { ...file };
+    return { ...file, source: 'example' };
   }
 
   addFile({ name, category = 'General Secrets', content = '', mimeType = 'text/plain' }) {

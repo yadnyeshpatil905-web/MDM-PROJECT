@@ -34,7 +34,7 @@ export class AuthService {
       this.config.CHALLENGE_TTL_SEC = Math.max(30, Math.min(300, Number(newConfig.challengeTtlSec)));
     }
     if (newConfig.autoLockDurationSec !== undefined) {
-      this.config.AUTO_LOCK_DURATION_SEC = Math.max(2, Math.min(60, Number(newConfig.autoLockDurationSec)));
+      this.config.AUTO_LOCK_DURATION_SEC = Math.max(0, Math.min(3600, Number(newConfig.autoLockDurationSec)));
     }
     if (newConfig.lockoutDurationSec !== undefined) {
       this.config.PIN_LOCKOUT_DURATION_SEC = Math.max(60, Math.min(3600, Number(newConfig.lockoutDurationSec)));
@@ -534,7 +534,7 @@ export class AuthService {
     });
 
     // 8. Command hardware actuator via trusted device service
-    const unlockResult = await deviceService.executeAuthorizedUnlock(userId);
+    const unlockResult = await deviceService.executeAuthorizedUnlock(userId, this.config.AUTO_LOCK_DURATION_SEC);
 
     // Generate authenticated session authorization token
     const session = this.createSession(userId);

@@ -3,7 +3,7 @@
  * Communicates with backend endpoints running on http://localhost:5000 (or VITE_API_URL).
  */
 
-const API_BASE = import.meta.env?.VITE_API_URL || 'http://localhost:5000';
+export const API_BASE = import.meta.env?.VITE_API_URL || 'http://localhost:5000';
 
 let currentSessionToken = null;
 
@@ -122,6 +122,19 @@ export const api = {
     method: 'POST',
     body: JSON.stringify(payload)
   }),
+  initVaultUpload: (payload) => request('/api/vault/files/upload/init', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+  completeVaultUpload: (payload) => request('/api/vault/files/upload/complete', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+  abortVaultUpload: (payload) => request('/api/vault/files/upload/abort', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+  getVaultFileSignedUrl: (id, mode = 'view') => request(`/api/vault/files/${id}/signed-url?mode=${encodeURIComponent(mode)}`),
   deleteVaultFile: (id) => request(`/api/vault/files/${id}`, {
     method: 'DELETE'
   }),

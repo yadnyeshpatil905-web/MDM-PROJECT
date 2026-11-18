@@ -9,6 +9,7 @@ import {
   Activity
 } from 'lucide-react';
 import { sounds } from '../audio/soundEffects';
+import { fridayVoice } from '../audio/fridayVoice';
 
 export default function Header({ 
   isHardwareConnected = false,
@@ -31,8 +32,13 @@ export default function Header({
   }, []);
 
   const toggleMute = () => {
-    sounds.muted = !sounds.muted;
-    setIsMuted(sounds.muted);
+    const nextMuted = !sounds.muted;
+    sounds.muted = nextMuted;
+    fridayVoice.muted = nextMuted;
+    if (nextMuted) {
+      fridayVoice.stop();
+    }
+    setIsMuted(nextMuted);
   };
 
   return (

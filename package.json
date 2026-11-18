@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "server": "node server/index.js",
-    "test": "node --test tests/biometricRecordings.test.js tests/apiRecordings.test.js",
+    "test": "node --test tests/biometricRecordings.test.js tests/apiRecordings.test.js tests/vaultFiles.test.js",
     "start": "concurrently \"npm run dev\" \"npm run server\""
   },
 

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
+import FridayHudBadge from './components/FridayHudBadge';
 import DashboardView from './views/DashboardView';
 import AuthenticationView from './views/AuthenticationView';
 import EnrollmentView from './views/EnrollmentView';
@@ -14,7 +15,8 @@ import { WebSerialDriver } from './services/webSerial';
 import { PpgSimulator } from './services/ppgEngine';
 import { parseArduinoSerialLine } from './services/serialParser';
 import { sounds } from './audio/soundEffects';
-import { api } from './services/api';
+import { fridayVoice } from './audio/fridayVoice';
+import { api, sessionAuth } from './services/api';
 import { SYSTEM_STATES } from './types/constants';
 
 export default function App() {
@@ -65,6 +67,11 @@ export default function App() {
 
   const simulatorRef = useRef(null);
   const socketRef = useRef(null);
+  const isVaultUnlockedRef = useRef(false);
+
+  useEffect(() => {
+    isVaultUnlockedRef.current = isVaultUnlocked;
+  }, [isVaultUnlocked]);
 
   // Sync enrolled template across engineState and simulator
   const handleSetEnrolledTemplate = (template) => {
@@ -131,13 +138,17 @@ export default function App() {
     socket.on('deviceState', (state) => {
       if (state) {
         const isUnlocked = state.servoStatus === 'UNLOCKED';
-        if (!isUnlocked) {
-          setIsVaultUnlocked(false);
+        // Never force-close an actively unlocked vault session from background deviceState broadcasts;
+        // the vault stays open until the user explicitly clicks "Relock Vault Deadbolt".
+        if (!isUnlocked && isVaultUnlockedRef.current) {
+          return;
         }
         setEngineState(prev => ({
           ...prev,
           servoAngle: state.servoAngle ?? prev.servoAngle,
-          state: isUnlocked ? SYSTEM_STATES.AUTHORIZED : prev.state
+          state: isUnlocked
+            ? SYSTEM_STATES.AUTHORIZED
+            : (prev.state === SYSTEM_STATES.AUTHORIZED ? SYSTEM_STATES.LOCKED : prev.state)
         }));
       }
     });
@@ -397,9 +408,17 @@ export default function App() {
 
   const handleAuthSuccess = (user, result) => {
     sounds.playAccessGranted();
+    const token = result?.sessionToken || result?.authorizationToken;
+    if (token) {
+      sessionAuth.setToken(token);
+    }
+    isVaultUnlockedRef.current = true;
     setIsVaultUnlocked(true);
     if (user) setAuthenticatedUser(user);
     if (result) setVaultSession(result);
+
+    const operatorName = user?.fullName || 'Operator';
+    fridayVoice.speakWelcome(operatorName);
 
     setEngineState(prev => ({
       ...prev,
@@ -411,7 +430,8 @@ export default function App() {
     handleUpdateLcd('ACCESS GRANTED', 'VAULT UNLOCKED');
 
     if (simulatorRef.current) {
-      simulatorRef.current.unlockAuthorized(60);
+      // Pass 0 so the unlocked vault window stays open until manually relocked
+      simulatorRef.current.unlockAuthorized(0);
     }
     // Also notify physical Arduino via serial if connected
     if (isHardwareConnected) {
@@ -421,6 +441,9 @@ export default function App() {
 
   const handleLockVault = async () => {
     sounds.playAccessDenied();
+    fridayVoice.speakRelock(authenticatedUser?.fullName || '');
+    sessionAuth.clearToken();
+    isVaultUnlockedRef.current = false;
     setIsVaultUnlocked(false);
     setAuthenticatedUser(null);
     setVaultSession(null);
@@ -433,6 +456,10 @@ export default function App() {
     }));
 
     handleUpdateLcd('ACCESS LOCKED', 'PLACE FINGER');
+
+    if (simulatorRef.current) {
+      simulatorRef.current.lockVault();
+    }
 
     if (authenticatedUser?.id) {
       try {
@@ -570,6 +597,9 @@ export default function App() {
         </main>
 
       </div>
+
+      {/* F.R.I.D.A.Y. Tactical AI Voice HUD Subtitle */}
+      <FridayHudBadge />
     </div>
   );
 }

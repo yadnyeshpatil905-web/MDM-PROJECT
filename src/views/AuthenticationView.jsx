@@ -39,7 +39,9 @@ import {
 import PpgWaveformCanvas from '../components/PpgWaveformCanvas';
 import TemplateComparisonCard from '../components/TemplateComparisonCard';
 import LCDDisplay from '../components/LCDDisplay';
+import VaultFileDirectory from '../components/VaultFileDirectory';
 import { api } from '../services/api';
+import { fridayVoice } from '../audio/fridayVoice';
 import { SYSTEM_STATES } from '../types/constants';
 import { TEAM_MEMBERS } from '../services/teamBiometrics';
 
@@ -130,12 +132,8 @@ export default function AuthenticationView({
   // Advanced Technical Diagnostics toggle
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  // Decrypted Vault Files & Credentials State
-  const [vaultFiles, setVaultFiles] = useState([]);
-  const [isLoadingFiles, setIsLoadingFiles] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('ALL');
-  const [activeFilePreview, setActiveFilePreview] = useState(null);
+  // Decrypted Vault Credentials & Directory Refresh State
+  const [vaultRefreshTick, setVaultRefreshTick] = useState(0);
   const [copiedKey, setCopiedKey] = useState(null);
   const [visiblePasswords, setVisiblePasswords] = useState({});
 
@@ -163,27 +161,6 @@ export default function AuthenticationView({
       onSetEnrolledTemplate(selectedUser.enrolledTemplate);
     }
   }, [selectedUser?.id, selectedUser?.enrolledTemplate]);
-
-  // Load Vault Files when unlocked
-  const loadVaultFiles = async () => {
-    setIsLoadingFiles(true);
-    try {
-      const res = await api.getVaultFiles();
-      if (res && res.files) {
-        setVaultFiles(res.files);
-      }
-    } catch (err) {
-      console.warn('Failed to load vault files:', err.message);
-    } finally {
-      setIsLoadingFiles(false);
-    }
-  };
-
-  useEffect(() => {
-    if (authStage === SYSTEM_STATES.AUTHORIZED || isVaultUnlocked) {
-      loadVaultFiles();
-    }
-  }, [authStage, isVaultUnlocked]);
 
   // Challenge Countdown Timer (90s TTL)
   useEffect(() => {
@@ -355,6 +332,7 @@ export default function AuthenticationView({
         setAuthStage(SYSTEM_STATES.BIOMETRIC_FAILED);
         setStageMessage('No clean pulse wave detected on sensor. Please keep finger steadily on HW-827 Pulse Sensor and retry.');
         onUpdateLcd('BAD SIGNAL', 'RETRY SCAN');
+        fridayVoice.speak('No clean pulse wave detected. Please keep finger steadily on pulse sensor and retry.', { urgency: 'alert' });
         return;
       }
 
@@ -383,6 +361,9 @@ export default function AuthenticationView({
       } else {
         if (result.lockedOut) {
           setLockoutSec(result.remainingSec || 300);
+          fridayVoice.speakLockout(result.remainingSec || 300);
+        } else {
+          fridayVoice.speakBiometricMismatch(selectedUser?.fullName || 'authorized operator');
         }
         setAuthStage(SYSTEM_STATES.BIOMETRIC_FAILED);
         setStageMessage(
@@ -433,10 +414,11 @@ export default function AuthenticationView({
         setAuthStage(SYSTEM_STATES.AUTHORIZED);
         setStageMessage(`Access Granted! Multi-authenticator verified. Deadbolt retracted (Servo 90°).`);
         setChallengeData(null);
+        setChallengeCountdown(0);
         setEnteredPin('');
         const currentUser = registeredUsers.find(u => u.id === selectedUserId);
         onAuthSuccess(currentUser, result);
-        loadVaultFiles();
+        setVaultRefreshTick(prev => prev + 1);
       }
     } catch (err) {
       setIsSubmitting(false);
@@ -450,17 +432,20 @@ export default function AuthenticationView({
         onUpdateLcd('ACCOUNT LOCKED', 'PIN FAILURES');
         onSendSerial('CMD:DENY PIN_LOCKOUT');
         setChallengeData(null);
+        fridayVoice.speakLockout(data.remainingSec || 300);
       } else if (data.expired) {
         setAuthStage(SYSTEM_STATES.BIOMETRIC_FAILED);
         setStageMessage(data.failureReason || 'Biometric challenge expired. Please rescan.');
         onUpdateLcd('EXPIRED 90s', 'RESCAN PULSE');
         setChallengeData(null);
+        fridayVoice.speak('Biometric challenge expired. Please rescan your pulse.', { urgency: 'alert' });
       } else {
         setAuthStage(SYSTEM_STATES.PIN_FAILED);
         setPinAttemptsRemaining(data.remainingAttempts);
         setStageMessage(data.failureReason || 'Incorrect Vault PIN.');
         onUpdateLcd('WRONG PIN', 'ACCESS DENIED');
         onSendSerial('CMD:DENY WRONG_PIN');
+        fridayVoice.speakWrongPin(data.remainingAttempts);
       }
     }
   };
@@ -544,32 +529,6 @@ export default function AuthenticationView({
     setVisiblePasswords(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
-  // Download decrypted file
-  const handleDownloadFile = (file, e) => {
-    if (e) e.stopPropagation();
-    const element = document.createElement('a');
-    const blob = new Blob([file.content || ''], { type: 'text/plain;charset=utf-8' });
-    element.href = URL.createObjectURL(blob);
-    element.download = file.name;
-    document.body.appendChild(element);
-    element.click();
-    document.body.removeChild(element);
-  };
-
-  // Open file preview
-  const handleOpenFile = async (fileSummary) => {
-    try {
-      const res = await api.getVaultFileById(fileSummary.id);
-      if (res && res.file) {
-        setActiveFilePreview(res.file);
-      } else {
-        setActiveFilePreview(fileSummary);
-      }
-    } catch (err) {
-      setActiveFilePreview(fileSummary);
-    }
-  };
-
   // Dynamic user credentials based on selected/authenticated user
   const currentUserName = authenticatedUser?.fullName || selectedUser?.fullName || 'Operator';
   const userTeamKey = (currentUserName || '').toLowerCase();
@@ -608,16 +567,6 @@ export default function AuthenticationView({
       isSecret: false
     }
   ];
-
-  // Filtered files
-  const filteredFiles = vaultFiles.filter(f => {
-    const matchesSearch = f.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          f.category.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory = selectedCategory === 'ALL' || f.category === selectedCategory;
-    return matchesSearch && matchesCategory;
-  });
-
-  const categories = ['ALL', ...new Set(vaultFiles.map(f => f.category))];
 
   const isUnlocked = authStage === SYSTEM_STATES.AUTHORIZED || servoAngle > 45 || isVaultUnlocked;
   const isDenied = authStage === SYSTEM_STATES.BIOMETRIC_FAILED || authStage === SYSTEM_STATES.PIN_FAILED;
@@ -1093,110 +1042,12 @@ export default function AuthenticationView({
             </div>
           </div>
 
-          {/* Sub-Section 2: Confidential Files & Folder Directory */}
-          <div className="rounded-xl border border-zinc-800 bg-[#0e0e11] overflow-hidden">
-            <div className="p-4 border-b border-zinc-800 bg-[#121216] flex flex-col md:flex-row md:items-center justify-between gap-3">
-              <div className="flex items-center space-x-2">
-                <FolderLock className="w-4 h-4 text-cyan-400" />
-                <span className="text-xs font-mono font-bold text-white uppercase tracking-wider">
-                  Confidential Vault Files Directory ({filteredFiles.length})
-                </span>
-              </div>
-
-              {/* Search & Category Filter */}
-              <div className="flex items-center space-x-2">
-                <div className="relative w-48">
-                  <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    placeholder="Search files..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full bg-zinc-900 border border-zinc-800 rounded-md pl-8 pr-2.5 py-1 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-cyan-500 font-mono"
-                  />
-                </div>
-
-                <select
-                  value={selectedCategory}
-                  onChange={(e) => setSelectedCategory(e.target.value)}
-                  className="bg-zinc-900 border border-zinc-800 rounded-md px-2.5 py-1 text-xs font-mono text-zinc-300 focus:outline-none focus:border-cyan-500"
-                >
-                  {categories.map(cat => (
-                    <option key={cat} value={cat}>{cat}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Files List */}
-            {isLoadingFiles ? (
-              <div className="p-8 text-center text-zinc-500 text-xs font-mono flex items-center justify-center space-x-2">
-                <RefreshCw className="w-4 h-4 animate-spin text-cyan-400" />
-                <span>Decrypting confidential directory files...</span>
-              </div>
-            ) : filteredFiles.length === 0 ? (
-              <div className="p-8 text-center text-zinc-500 text-xs font-mono">
-                No files found matching criteria.
-              </div>
-            ) : (
-              <div className="divide-y divide-zinc-800/80">
-                {filteredFiles.map((file) => {
-                  const isJson = file.name.endsWith('.json');
-                  const isPem = file.name.endsWith('.pem') || file.name.endsWith('.key');
-                  const isCsv = file.name.endsWith('.csv');
-
-                  return (
-                    <div
-                      key={file.id}
-                      onClick={() => handleOpenFile(file)}
-                      className="px-5 py-3.5 flex items-center justify-between hover:bg-zinc-900/50 transition-colors cursor-pointer group"
-                    >
-                      <div className="flex items-center space-x-3.5 min-w-0">
-                        <div className="w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-700/80 flex items-center justify-center text-zinc-300 group-hover:text-cyan-400 group-hover:border-cyan-800 transition-colors shrink-0">
-                          {isJson ? <FileCode className="w-4 h-4" /> :
-                           isPem ? <Key className="w-4 h-4 text-amber-400" /> :
-                           isCsv ? <FileSpreadsheet className="w-4 h-4 text-emerald-400" /> :
-                           <FileText className="w-4 h-4" />}
-                        </div>
-
-                        <div className="min-w-0">
-                          <div className="text-xs font-semibold text-white truncate group-hover:text-cyan-300 transition-colors flex items-center space-x-2">
-                            <span>{file.name}</span>
-                            <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-zinc-800 text-emerald-400 border border-emerald-900/60">
-                              AES-256
-                            </span>
-                          </div>
-                          <div className="text-[10px] text-zinc-500 font-mono mt-0.5">
-                            Category: {file.category} • Size: {file.size} • Updated {file.updatedAt}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center space-x-2 shrink-0" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          onClick={() => handleOpenFile(file)}
-                          className="px-2.5 py-1 rounded bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-mono text-zinc-300 hover:text-cyan-300 flex items-center space-x-1 transition-colors"
-                          title="Decrypt & View"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          <span>View</span>
-                        </button>
-
-                        <button
-                          onClick={(e) => handleDownloadFile(file, e)}
-                          className="px-2.5 py-1 rounded bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs font-mono text-zinc-300 hover:text-emerald-300 flex items-center space-x-1 transition-colors"
-                          title="Download Decrypted File"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          <span>Export</span>
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          {/* Sub-Section 2: Confidential Files & Folder Directory (Supabase Storage Integrated) */}
+          <VaultFileDirectory
+            isUnlocked={isUnlocked}
+            refreshTrigger={vaultRefreshTick}
+            title="Confidential Vault Files Directory"
+          />
 
         </div>
 
@@ -1227,60 +1078,6 @@ export default function AuthenticationView({
           </div>
         )}
       </div>
-
-      {/* Decrypted File Preview Modal */}
-      {activeFilePreview && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="w-full max-w-2xl rounded-2xl border border-zinc-700 bg-[#0e0e14] shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
-            
-            <div className="p-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-950">
-              <div className="flex items-center space-x-3">
-                <div className="w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-700 flex items-center justify-center text-cyan-400">
-                  <FileText className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white tracking-tight">{activeFilePreview.name}</h3>
-                  <div className="text-[10px] font-mono text-zinc-400">
-                    Category: {activeFilePreview.category} • Size: {activeFilePreview.size}
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => handleCopy(activeFilePreview.content, 'modal-preview')}
-                  className="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-xs font-mono text-zinc-200 flex items-center space-x-1.5 transition-colors cursor-pointer"
-                >
-                  {copiedKey === 'modal-preview' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedKey === 'modal-preview' ? 'Copied' : 'Copy'}</span>
-                </button>
-
-                <button
-                  onClick={() => handleDownloadFile(activeFilePreview)}
-                  className="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-xs font-mono text-zinc-200 flex items-center space-x-1.5 transition-colors cursor-pointer"
-                >
-                  <Download className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Download</span>
-                </button>
-
-                <button
-                  onClick={() => setActiveFilePreview(null)}
-                  className="p-1 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors cursor-pointer"
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
-
-            <div className="p-4 flex-1 overflow-y-auto bg-[#08080a] font-mono text-xs text-zinc-300">
-              <pre className="whitespace-pre-wrap leading-relaxed select-all">
-                {activeFilePreview.content || 'No file content available.'}
-              </pre>
-            </div>
-
-          </div>
-        </div>
-      )}
 
     </div>
   );

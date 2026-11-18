@@ -37,9 +37,9 @@ export class DeviceService {
 
   /**
    * Only trusted backend authorization flow can invoke unlock!
-   * Opens servo to 90 degrees and schedules automatic safe relock.
+   * Opens servo to 90 degrees and optionally schedules automatic relock if autoLockDurationSec > 0.
    */
-  async executeAuthorizedUnlock(userId) {
+  async executeAuthorizedUnlock(userId, autoLockDurationSec = DEFAULT_CONFIG.AUTO_LOCK_DURATION_SEC) {
     if (this.autoLockTimer) {
       clearTimeout(this.autoLockTimer);
       this.autoLockTimer = null;
@@ -54,15 +54,18 @@ export class DeviceService {
       event_type: VAULT_EVENT_TYPES.OPEN_AUTHORIZED
     });
 
-    // Schedule fail-safe automatic relock
-    this.autoLockTimer = setTimeout(async () => {
-      await this.executeRelock(userId);
-    }, DEFAULT_CONFIG.AUTO_LOCK_DURATION_SEC * 1000);
+    // Only schedule automatic relock when explicitly configured (> 0 seconds)
+    const lockDuration = Number(autoLockDurationSec) || 0;
+    if (lockDuration > 0) {
+      this.autoLockTimer = setTimeout(async () => {
+        await this.executeRelock(userId);
+      }, lockDuration * 1000);
+    }
 
     return {
       success: true,
       servoAngle: 90,
-      autoLockInSeconds: DEFAULT_CONFIG.AUTO_LOCK_DURATION_SEC
+      autoLockInSeconds: lockDuration > 0 ? lockDuration : null
     };
   }
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, ShieldCheck, Sliders, Check, RefreshCw, AlertCircle } from 'lucide-react';
+import { Settings, ShieldCheck, Sliders, Check, RefreshCw, AlertCircle, Bot, Volume2, ShieldAlert } from 'lucide-react';
 import { api } from '../services/api';
+import { fridayVoice } from '../audio/fridayVoice';
 
 export default function SettingsView() {
   const [config, setConfig] = useState({
@@ -8,12 +9,26 @@ export default function SettingsView() {
     PIN_MAX_ATTEMPTS: 3,
     PIN_LOCKOUT_DURATION_SEC: 300,
     CHALLENGE_TTL_SEC: 90,
-    AUTO_LOCK_DURATION_SEC: 5
+    AUTO_LOCK_DURATION_SEC: 0
   });
 
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [voices, setVoices] = useState([]);
+  const [selectedVoice, setSelectedVoice] = useState(fridayVoice.selectedVoiceName || 'Auto (F.R.I.D.A.Y. Optimal)');
+
+  useEffect(() => {
+    const loadVoices = () => {
+      const list = fridayVoice.getAvailableVoices();
+      if (list.length > 0) setVoices(list);
+    };
+    loadVoices();
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.addEventListener?.('voiceschanged', loadVoices);
+      return () => window.speechSynthesis.removeEventListener?.('voiceschanged', loadVoices);
+    }
+  }, []);
 
   const loadSettings = async () => {
     try {
@@ -183,14 +198,82 @@ export default function SettingsView() {
                 onChange={(e) => setConfig({ ...config, AUTO_LOCK_DURATION_SEC: Number(e.target.value) })}
                 className="w-full bg-[#0a0a0c] border border-zinc-800 rounded px-2.5 py-2 text-white focus:outline-none focus:border-cyan-500"
               >
-                <option value={3}>3 Seconds</option>
-                <option value={5}>5 Seconds (Standard)</option>
+                <option value={0}>Manual Relock Only (Stay Open)</option>
+                <option value={30}>30 Seconds</option>
+                <option value={60}>1 Minute</option>
+                <option value={300}>5 Minutes</option>
                 <option value={10}>10 Seconds</option>
+                <option value={5}>5 Seconds</option>
               </select>
             </div>
           </div>
         </div>
 
+      </div>
+
+      {/* F.R.I.D.A.Y. Voice Assistant Card */}
+      <div className="pro-card p-5 border border-cyan-900/60 bg-[#101014] space-y-4 font-mono text-xs">
+        <div className="text-zinc-200 font-semibold flex items-center justify-between border-b border-zinc-800/80 pb-2">
+          <div className="flex items-center space-x-2">
+            <Bot className="w-4 h-4 text-cyan-400" />
+            <span>F.R.I.D.A.Y. Tactical Voice Assistant</span>
+          </div>
+          <span className="text-[10px] text-cyan-400 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-800/80">
+            Active on Unlock & Alerts
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+          <div>
+            <label className="text-zinc-400 block mb-1">Voice Synthesizer Profile</label>
+            <select
+              value={selectedVoice}
+              onChange={(e) => {
+                const val = e.target.value;
+                setSelectedVoice(val);
+                if (val === 'Auto (F.R.I.D.A.Y. Optimal)') {
+                  fridayVoice.selectedVoiceName = val;
+                  fridayVoice.initVoices();
+                } else {
+                  fridayVoice.setCustomVoice(val);
+                }
+              }}
+              className="w-full bg-[#0a0a0c] border border-zinc-800 rounded px-2.5 py-2 text-white focus:outline-none focus:border-cyan-500"
+            >
+              <option value="Auto (F.R.I.D.A.Y. Optimal)">Auto (F.R.I.D.A.Y. Optimal — Irish/UK Female Priority)</option>
+              {voices
+                .filter((v) => v.lang.toLowerCase().startsWith('en'))
+                .map((v) => (
+                  <option key={v.name} value={v.name}>
+                    {v.name} ({v.lang})
+                  </option>
+                ))}
+            </select>
+            <span className="text-[10px] text-zinc-500 mt-1 block">
+              Currently active: {fridayVoice.voice?.name || 'System Default'}
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => fridayVoice.speakWelcome('Tejas')}
+              className="px-3.5 py-2 rounded-md bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs flex items-center space-x-1.5 transition-colors cursor-pointer"
+            >
+              <Volume2 className="w-3.5 h-3.5" />
+              <span>Test Welcome Voice</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => fridayVoice.speakBiometricMismatch('Tejas')}
+              className="px-3.5 py-2 rounded-md bg-rose-950/80 hover:bg-rose-900 border border-rose-800 text-rose-200 font-semibold text-xs flex items-center space-x-1.5 transition-colors cursor-pointer"
+            >
+              <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
+              <span>Test Mismatch Alert</span>
+            </button>
+          </div>
+        </div>
       </div>
 
     </div>

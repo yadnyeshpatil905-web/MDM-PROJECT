@@ -2,8 +2,9 @@ import express from 'express';
 import { authService } from '../services/authService.js';
 import { deviceService } from '../services/deviceService.js';
 import { vaultFolderService } from '../services/vaultFolderService.js';
+import { vaultStorageService } from '../services/vaultStorageService.js';
 import { repository } from '../repositories/index.js';
-import { requireAuth } from '../middleware/authMiddleware.js';
+import { requireAuth, optionalAuth } from '../middleware/authMiddleware.js';
 import { BiometricService } from '../services/biometricService.js';
 import { isSupabaseConfigured } from '../services/supabaseClient.js';
 
@@ -139,25 +140,205 @@ router.get('/vault/status', (req, res) => {
 
 /**
  * Vault Protected Files & Folder Management
+ * Merges the 5 existing example files with real user-owned Supabase Storage files.
  */
-router.get('/vault/files', (req, res) => {
+router.get('/vault/files', optionalAuth, async (req, res) => {
   try {
-    const files = vaultFolderService.getFiles();
-    res.json({ success: true, count: files.length, files });
+    const exampleFiles = vaultFolderService.getFiles();
+    const storageConfig = vaultStorageService.getConfig();
+    let userFiles = [];
+    let migrationRequired = false;
+
+    if (req.user?.id) {
+      const result = await vaultStorageService.listUserFiles(req.user.id);
+      userFiles = result.files || [];
+      migrationRequired = Boolean(result.migrationRequired);
+    }
+
+    const files = [...userFiles, ...exampleFiles];
+    res.json({
+      success: true,
+      count: files.length,
+      files,
+      userFileCount: userFiles.length,
+      migrationRequired,
+      uploadConfig: {
+        bucketName: storageConfig.bucketName,
+        maxFileSizeMb: storageConfig.maxFileSizeMb,
+        maxFileSizeBytes: storageConfig.maxFileSizeBytes,
+        supabaseEnabled: storageConfig.supabaseEnabled
+      }
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-router.get('/vault/files/:id', (req, res) => {
+/**
+ * Step 1: Initialize secure file upload to private Supabase Storage bucket 'vault-files'.
+ * Validates ownership, file size limits, and creates a unique user-scoped storage path.
+ */
+router.post('/vault/files/upload/init', requireAuth, async (req, res) => {
   try {
-    const file = vaultFolderService.getFileById(req.params.id);
-    if (!file) {
-      return res.status(404).json({ success: false, error: 'File not found in secure vault.' });
+    const { fileName, fileSize, fileType, category, description } = req.body;
+    const initData = await vaultStorageService.initUpload({
+      userId: req.user.id,
+      fileName,
+      fileSize,
+      fileType,
+      category,
+      description
+    });
+    res.status(201).json({ success: true, ...initData });
+  } catch (err) {
+    const status = err.message?.toLowerCase().includes('exceeds the maximum') ? 413 : 400;
+    res.status(status).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * Raw binary upload endpoint (local/test fallback or browser CORS fallback).
+ * Preserves exact original file bytes without conversion or compression.
+ */
+router.put(
+  '/vault/files/upload/:uploadId/binary',
+  requireAuth,
+  (req, res, next) => {
+    const limitMb = vaultStorageService.getConfig().maxFileSizeMb;
+    express.raw({ type: '*/*', limit: `${limitMb}mb` })(req, res, (err) => {
+      if (err) {
+        const status = err.status === 413 || err.type === 'entity.too.large' ? 413 : 400;
+        return res.status(status).json({
+          success: false,
+          error: status === 413
+            ? `File exceeds the maximum allowed upload size of ${limitMb} MB.`
+            : err.message
+        });
+      }
+      next();
+    });
+  },
+  async (req, res) => {
+    try {
+      const result = await vaultStorageService.uploadBinary({
+        userId: req.user.id,
+        uploadId: req.params.uploadId,
+        buffer: Buffer.isBuffer(req.body) ? req.body : Buffer.from([])
+      });
+      res.json(result);
+    } catch (err) {
+      const status = err.message?.includes('Access denied') ? 403 : 400;
+      res.status(status).json({ success: false, error: err.message });
     }
-    res.json({ success: true, file });
+  }
+);
+
+/**
+ * Step 2: Finalize upload by saving metadata in public.vault_files.
+ * Automatically removes Storage object if database insert fails.
+ */
+router.post('/vault/files/upload/complete', requireAuth, async (req, res) => {
+  try {
+    const { uploadId, actualFileSize } = req.body;
+    const file = await vaultStorageService.completeUpload({
+      userId: req.user.id,
+      uploadId,
+      actualFileSize
+    });
+    res.status(201).json({ success: true, file });
+  } catch (err) {
+    const status = err.message?.includes('Access denied') ? 403 : 400;
+    res.status(status).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * Abort an in-progress upload and remove any orphaned object from Storage.
+ */
+router.post('/vault/files/upload/abort', requireAuth, async (req, res) => {
+  try {
+    const { uploadId } = req.body;
+    const result = await vaultStorageService.abortUpload({
+      userId: req.user.id,
+      uploadId
+    });
+    res.json(result);
+  } catch (err) {
+    const status = err.message?.includes('Access denied') ? 403 : 400;
+    res.status(status).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * Generate a temporary signed URL for viewing or downloading an owned Supabase file.
+ * Strictly validates file ownership; never uses public URLs.
+ */
+router.get('/vault/files/:id/signed-url', requireAuth, async (req, res) => {
+  try {
+    const mode = req.query.mode === 'download' ? 'download' : 'view';
+    const result = await vaultStorageService.createSignedAccessUrl({
+      userId: req.user.id,
+      fileId: req.params.id,
+      mode
+    });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(err.status || 400).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * Authenticated raw download/view endpoint for local/test mode (when Supabase is disabled).
+ */
+router.get('/vault/files/:id/raw-local', requireAuth, async (req, res) => {
+  try {
+    const found = await vaultStorageService.getLocalBlob({
+      userId: req.user.id,
+      fileId: req.params.id
+    });
+    if (!found) {
+      return res.status(404).json({ success: false, error: 'Vault file not found or access denied.' });
+    }
+    const disposition = req.query.mode === 'download' ? 'attachment' : 'inline';
+    const safeFilename = found.record.file_name.replace(/["\r\n]/g, '_');
+    res.setHeader('Content-Type', found.record.file_type || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `${disposition}; filename="${safeFilename}"`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.send(found.buffer);
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.get('/vault/files/:id', optionalAuth, async (req, res) => {
+  try {
+    // 1. Check built-in example files first
+    const exampleFile = vaultFolderService.getFileById(req.params.id);
+    if (exampleFile) {
+      return res.json({ success: true, file: exampleFile });
+    }
+
+    // 2. Otherwise require authenticated owner access for real Supabase files
+    if (!req.user?.id) {
+      return res.status(401).json({ success: false, error: 'Authentication required to access this vault file.' });
+    }
+
+    const signed = await vaultStorageService.createSignedAccessUrl({
+      userId: req.user.id,
+      fileId: req.params.id,
+      mode: 'view'
+    });
+
+    res.json({
+      success: true,
+      file: {
+        ...signed.file,
+        signedUrl: signed.signedUrl,
+        expiresInSec: signed.expiresInSec
+      }
+    });
+  } catch (err) {
+    res.status(err.status || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -171,15 +352,31 @@ router.post('/vault/files', (req, res) => {
   }
 });
 
-router.delete('/vault/files/:id', (req, res) => {
+router.delete('/vault/files/:id', optionalAuth, async (req, res) => {
   try {
-    const ok = vaultFolderService.deleteFile(req.params.id);
-    if (!ok) {
-      return res.status(404).json({ success: false, error: 'File not found.' });
+    // 1. Built-in example file deletion
+    const existingExample = vaultFolderService.getFileById(req.params.id);
+    if (existingExample) {
+      vaultFolderService.deleteFile(req.params.id);
+      return res.json({ success: true, deletedId: req.params.id, message: 'File removed from vault directory.' });
     }
-    res.json({ success: true, message: 'File removed from vault folder.' });
+
+    // 2. Real Supabase file deletion — strictly requires authenticated owner
+    if (!req.user?.id) {
+      return res.status(401).json({ success: false, error: 'Authentication required to delete vault files.' });
+    }
+
+    const result = await vaultStorageService.deleteUserFile({
+      userId: req.user.id,
+      fileId: req.params.id
+    });
+    res.json({
+      success: true,
+      ...result,
+      message: `"${result.fileName}" permanently deleted from private storage and database.`
+    });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err.status || 500).json({ success: false, error: err.message });
   }
 });
 

@@ -73,7 +73,7 @@ export const DEFAULT_CONFIG = {
   PIN_MAX_ATTEMPTS: 3,            // Max consecutive failed PIN attempts
   PIN_LOCKOUT_DURATION_SEC: 300,  // 5 minutes lockout after max failures
   CHALLENGE_TTL_SEC: 90,          // 90 seconds challenge expiry for Step 2 PIN
-  AUTO_LOCK_DURATION_SEC: 5       // Auto-relock deadbolt 5 seconds after opening
+  AUTO_LOCK_DURATION_SEC: 0       // 0 = Manual relock only (stays unlocked until user clicks Relock)
 };
 
 export const RAW_RECORDING_CONFIG = {
